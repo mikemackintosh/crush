@@ -90,3 +90,17 @@ func mcpRemove(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	slog.Info("MCP server removed in shell config", "name", name)
 	return nil
 }
+
+// MCPServerFromArgs parses the flags of `mcp add <name>` (everything after the
+// name) into the server's config map, using exactly the flag surface the
+// crushrc builtin accepts. The CLI's `crush mcp add` reuses it so the two
+// forms cannot drift. An unknown flag or a bad value is returned as an error
+// carrying the usage line.
+func MCPServerFromArgs(flags []string) (map[string]any, error) {
+	m := map[string]any{"type": "stdio"}
+	args := append([]string{"mcp", "add", "<name>"}, flags...)
+	if err := applyFlags(mcpAddFlags, args, 3, m, "mcp add", io.Discard); err != nil {
+		return nil, err
+	}
+	return m, nil
+}

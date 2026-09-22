@@ -416,6 +416,19 @@ Crush also supports Model Context Protocol (MCP) servers through three transport
 types: `stdio` for command-line servers, `http` for HTTP endpoints, and `sse`
 for Server-Sent Events.
 
+The quickest way to add one is from the command line, which writes it to your
+config for you. `crush mcp add` takes the same flags as the `mcp add` line in a
+`crushrc`; add `--workspace` to keep the server in this project's
+`.crush/crush.json` instead of the global config.
+
+```bash
+crush mcp add rocketbox --type http --url https://rocketbox.ai/mcp --oauth true
+crush mcp list
+crush mcp remove rocketbox
+```
+
+Or write the same thing in your config directly:
+
 ```bash
 # crushrc
 

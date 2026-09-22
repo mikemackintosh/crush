@@ -244,6 +244,43 @@ func (c *controllerV1) handlePostWorkspaceMCPReconnect(w http.ResponseWriter, r 
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceMCPSetEnabled enables or disables a named MCP server.
+func (c *controllerV1) handlePostWorkspaceMCPSetEnabled(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req proto.MCPSetEnabledRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.MCPSetEnabled(r.Context(), id, req.Name, req.Enabled); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handlePostWorkspaceMCPForgetAuth drops a named MCP server's OAuth token so
+// it can be authenticated again.
+func (c *controllerV1) handlePostWorkspaceMCPForgetAuth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req proto.MCPNameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.MCPForgetAuth(id, req.Name); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handlePostWorkspaceMCPRefreshTools refreshes tools for a named MCP server.
 func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

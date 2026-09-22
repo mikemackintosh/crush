@@ -642,6 +642,26 @@ func DisableSingle(cfg *config.ConfigStore, name string) error {
 	return nil
 }
 
+// ForgetAuth drops the persisted OAuth token for a server and tears the
+// connection down, leaving it in StateNeedsAuth so the next connect must be
+// authorized interactively again. It is the "sign in again" a user reaches
+// for when a token was issued to the wrong account or scope, which a plain
+// reconnect would keep reusing.
+func ForgetAuth(cfg *config.ConfigStore, name string) error {
+	m, exists := cfg.Config().MCP[name]
+	if !exists {
+		return fmt.Errorf("mcp '%s' not found in configuration", name)
+	}
+	if !m.OAuth || m.Type != config.MCPHttp {
+		return fmt.Errorf("mcp '%s' does not use OAuth authentication", name)
+	}
+	clearOAuthToken(cfg, name)
+	teardown(name)
+	updateState(name, StateNeedsAuth, nil, nil, Counts{}, withPending(m))
+	slog.Info("Forgot mcp OAuth token", "name", name)
+	return nil
+}
+
 // goInitClient launches initClient in a goroutine with panic recovery.
 // Shared by Initialize and Reinitialize so the panic-to-state policy
 // lives in one place. wg, if non-nil, is Done when the attempt finishes

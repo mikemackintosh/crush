@@ -186,3 +186,49 @@ func writeJSON(t *testing.T, path string, v any) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o644))
 }
+
+// TestMCPSetEnabled_DisablePersists verifies that disabling a server writes
+// the flag to the global data config and leaves the server StateDisabled.
+// Not parallel: uses t.Setenv to isolate the global config.
+func TestMCPSetEnabled_DisablePersists(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "crush.json")
+	writeCrushConfig(t, configPath, map[string]any{
+		"test-server": disabledStdioMCP(),
+	})
+	w := newLoadedAppWorkspace(t, tmpDir)
+
+	require.NoError(t, w.MCPSetEnabled(t.Context(), "test-server", false))
+
+	info, ok := mcptools.GetState("test-server")
+	require.True(t, ok)
+	require.Equal(t, mcptools.StateDisabled, info.State)
+
+	data, err := os.ReadFile(filepath.Join(os.Getenv("CRUSH_GLOBAL_DATA"), "crush.json"))
+	require.NoError(t, err)
+	var saved map[string]any
+	require.NoError(t, json.Unmarshal(data, &saved))
+	mcp, _ := saved["mcp"].(map[string]any)
+	srv, _ := mcp["test-server"].(map[string]any)
+	require.Equal(t, true, srv["disabled"], "disabled flag persisted to the global data config")
+
+	require.ErrorContains(t, w.MCPSetEnabled(t.Context(), "nope", false), "not found")
+
+	t.Cleanup(func() {
+		_ = mcptools.DisableSingle(w.store, "test-server")
+	})
+}
+
+// TestMCPForgetAuth_RequiresOAuthServer verifies the guard: forgetting auth
+// on a server that does not use OAuth is refused with the reason.
+// Not parallel: uses t.Setenv to isolate the global config.
+func TestMCPForgetAuth_RequiresOAuthServer(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeCrushConfig(t, filepath.Join(tmpDir, "crush.json"), map[string]any{
+		"test-server": disabledStdioMCP(),
+	})
+	w := newLoadedAppWorkspace(t, tmpDir)
+
+	require.ErrorContains(t, w.MCPForgetAuth(t.Context(), "test-server"), "does not use OAuth")
+	require.ErrorContains(t, w.MCPForgetAuth(t.Context(), "nope"), "not found")
+}

@@ -349,6 +349,40 @@ func (b *Backend) MCPReconnect(ctx context.Context, workspaceID, name string) er
 	return mcptools.InitializeSingle(ctx, name, ws.Cfg)
 }
 
+// MCPSetEnabled flips a server's disabled flag in the global config and
+// applies it live: a disabled server is torn down, an enabled one is started.
+// The flag is written to the machine-owned data config, which merges over the
+// user's config, so it sticks across restarts without editing that file.
+func (b *Backend) MCPSetEnabled(ctx context.Context, workspaceID, name string, enabled bool) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if _, ok := ws.Cfg.Config().MCP[name]; !ok {
+		return fmt.Errorf("mcp '%s' not found in configuration", name)
+	}
+	if err := ws.Cfg.SetConfigField(config.ScopeGlobal, fmt.Sprintf("mcp.%s.disabled", name), !enabled); err != nil {
+		return fmt.Errorf("failed to save MCP %q disabled flag: %w", name, err)
+	}
+	if err := mcptools.DisableSingle(ws.Cfg, name); err != nil {
+		return fmt.Errorf("failed to disconnect MCP %q: %w", name, err)
+	}
+	if !enabled {
+		return nil
+	}
+	return mcptools.InitializeSingle(ctx, name, ws.Cfg)
+}
+
+// MCPForgetAuth drops a server's stored OAuth token and leaves it awaiting
+// authentication, so the user can sign in again.
+func (b *Backend) MCPForgetAuth(workspaceID, name string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	return mcptools.ForgetAuth(ws.Cfg, name)
+}
+
 // GetWorkingDir returns the working directory for a workspace.
 func (b *Backend) GetWorkingDir(workspaceID string) (string, error) {
 	ws, err := b.GetWorkspace(workspaceID)

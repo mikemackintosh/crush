@@ -427,6 +427,11 @@ crush mcp list
 crush mcp remove rocketbox
 ```
 
+Inside a session, type `/mcp` (or `/mcp <name>`) to open the MCP servers
+dialog: it shows each server's state and tool counts, and from there you can
+reconnect (`enter`), enable or disable (`ctrl+e`), sign in again to an OAuth
+server (`ctrl+a`), or refresh its tools, prompts and resources.
+
 Or write the same thing in your config directly:
 
 ```bash

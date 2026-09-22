@@ -612,5 +612,21 @@ func (c *controllerV1) endpoints() []apigen.Endpoint {
 			Accepts(proto.MCPNameRequest{}).
 			Fails(400, 404, 500).
 			Handle(c.handlePostWorkspaceMCPReconnect),
+
+		apigen.Post("/v1/workspaces/{id}/mcp/set-enabled").
+			Summary("Enable or disable an MCP server").
+			Tags("mcp").
+			PathParam("id", "Workspace ID").
+			Accepts(proto.MCPSetEnabledRequest{}).
+			Fails(400, 404, 500).
+			Handle(c.handlePostWorkspaceMCPSetEnabled),
+
+		apigen.Post("/v1/workspaces/{id}/mcp/forget-auth").
+			Summary("Forget an MCP server's OAuth token").
+			Tags("mcp").
+			PathParam("id", "Workspace ID").
+			Accepts(proto.MCPNameRequest{}).
+			Fails(400, 404, 500).
+			Handle(c.handlePostWorkspaceMCPForgetAuth),
 	}
 }

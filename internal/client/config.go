@@ -287,6 +287,37 @@ func (c *Client) DisableDockerMCP(ctx context.Context, id string) error {
 }
 
 // MCPReconnect restarts a single MCP server, re-resolving env vars.
+// MCPSetEnabled enables or disables an MCP server and persists the flag.
+func (c *Client) MCPSetEnabled(ctx context.Context, id, name string, enabled bool) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/set-enabled", id), nil, jsonBody(struct {
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}{Name: name, Enabled: enabled}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set MCP enabled: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set MCP enabled: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// MCPForgetAuth drops an MCP server's stored OAuth token.
+func (c *Client) MCPForgetAuth(ctx context.Context, id, name string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/forget-auth", id), nil, jsonBody(struct {
+		Name string `json:"name"`
+	}{Name: name}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to forget MCP auth: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to forget MCP auth: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) MCPReconnect(ctx context.Context, id, name string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/reconnect", id), nil, jsonBody(struct {
 		Name string `json:"name"`

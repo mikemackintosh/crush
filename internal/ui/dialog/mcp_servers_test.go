@@ -196,3 +196,49 @@ func TestMCPServerItem_FilterMatchesName(t *testing.T) {
 	item := NewMCPServerItem(&s, mcp.ClientInfo{Name: "signal-server"})
 	require.Equal(t, "signal-server", item.Filter())
 }
+
+func TestMCPServers_ToggleFollowsState(t *testing.T) {
+	t.Parallel()
+
+	d := newTestMCPServers(t, map[string]mcp.ClientInfo{
+		"signal": {Name: "signal", State: mcp.StateConnected},
+	})
+	action := d.HandleMsg(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	toggle, ok := action.(ActionMCPSetEnabled)
+	require.True(t, ok, "ctrl+e should toggle the selected server")
+	require.Equal(t, "signal", toggle.ServerName)
+	require.False(t, toggle.Enabled, "a connected server is disabled")
+
+	d = newTestMCPServers(t, map[string]mcp.ClientInfo{
+		"signal": {Name: "signal", State: mcp.StateDisabled},
+	})
+	action = d.HandleMsg(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	toggle, ok = action.(ActionMCPSetEnabled)
+	require.True(t, ok)
+	require.True(t, toggle.Enabled, "a disabled server is enabled")
+}
+
+func TestMCPServers_ReauthAction(t *testing.T) {
+	t.Parallel()
+
+	d := newTestMCPServers(t, map[string]mcp.ClientInfo{
+		"rocketbox": {Name: "rocketbox", State: mcp.StateConnected},
+	})
+	action := d.HandleMsg(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	reauth, ok := action.(ActionMCPReauth)
+	require.True(t, ok, "ctrl+a should start sign-in again")
+	require.Equal(t, "rocketbox", reauth.ServerName)
+}
+
+func TestMCPServers_SetFilterNarrowsAndSelects(t *testing.T) {
+	t.Parallel()
+
+	d := newTestMCPServers(t, map[string]mcp.ClientInfo{
+		"signal":    {Name: "signal", State: mcp.StateConnected},
+		"rocketbox": {Name: "rocketbox", State: mcp.StateConnected},
+	})
+	d.SetFilter("rocket")
+	item := d.selectedServer()
+	require.NotNil(t, item)
+	require.Equal(t, "rocketbox", item.info.Name)
+}

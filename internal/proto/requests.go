@@ -129,6 +129,12 @@ type MCPNameRequest struct {
 	Name string `json:"name"`
 }
 
+// MCPSetEnabledRequest names a server and whether it should run.
+type MCPSetEnabledRequest struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
 // MCPPendingAuthServer describes an MCP server awaiting OAuth
 // authentication, returned to clients so they can prompt the user.
 type MCPPendingAuthServer struct {

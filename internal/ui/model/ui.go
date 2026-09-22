@@ -2439,6 +2439,27 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			}
 			return util.NewInfoMsg(fmt.Sprintf("MCP server %q reconnected", msg.ServerName))
 		})
+	case dialog.ActionMCPSetEnabled:
+		m.dialog.CloseDialog(dialog.MCPServersID)
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.MCPSetEnabled(context.Background(), msg.ServerName, msg.Enabled); err != nil {
+				return util.ReportError(err)()
+			}
+			if msg.Enabled {
+				return util.NewInfoMsg(fmt.Sprintf("MCP server %q enabled", msg.ServerName))
+			}
+			return util.NewInfoMsg(fmt.Sprintf("MCP server %q disabled", msg.ServerName))
+		})
+	case dialog.ActionMCPReauth:
+		m.dialog.CloseDialog(dialog.MCPServersID)
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.MCPForgetAuth(context.Background(), msg.ServerName); err != nil {
+				return util.ReportError(err)()
+			}
+			// The server is now awaiting auth; the state change opens the
+			// sign-in dialog the same way a fresh start does.
+			return mcpStateChangedMsg{states: m.com.Workspace.MCPGetStates()}
+		})
 	case dialog.ActionMCPRefreshTools:
 		m.dialog.CloseDialog(dialog.MCPServersID)
 		cmds = append(cmds, func() tea.Msg {
@@ -5014,6 +5035,11 @@ func (m *UI) openThemeEditorDialog(themeName string) {
 
 // sendMessage sends a message with the given content and attachments.
 func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.Cmd {
+	if name, arg, ok := parseSlashCommand(content); ok && len(attachments) == 0 {
+		if cmd, handled := m.runSlashCommand(name, arg); handled {
+			return cmd
+		}
+	}
 	return m.sendMessageInternal(content, false, attachments...)
 }
 
@@ -5373,11 +5399,20 @@ func (m *UI) openNotificationsDialog() tea.Cmd {
 
 // openMCPServersDialog opens the MCP servers management dialog.
 func (m *UI) openMCPServersDialog() {
+	m.openMCPServersDialogFiltered("")
+}
+
+// openMCPServersDialogFiltered opens the MCP servers dialog with the filter
+// pre-filled, which is how "/mcp <name>" lands on one server.
+func (m *UI) openMCPServersDialogFiltered(filter string) {
 	if m.dialog.ContainsDialog(dialog.MCPServersID) {
 		m.dialog.BringToFront(dialog.MCPServersID)
 		return
 	}
 	mcpDialog := dialog.NewMCPServers(m.com, m.com.Workspace)
+	if filter != "" {
+		mcpDialog.SetFilter(filter)
+	}
 	m.dialog.OpenDialog(mcpDialog)
 }
 

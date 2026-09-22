@@ -503,6 +503,26 @@ func (w *AppWorkspace) MCPReconnect(ctx context.Context, name string) error {
 	return mcptools.InitializeSingle(ctx, name, w.store)
 }
 
+func (w *AppWorkspace) MCPSetEnabled(ctx context.Context, name string, enabled bool) error {
+	if _, ok := w.store.Config().MCP[name]; !ok {
+		return fmt.Errorf("mcp '%s' not found in configuration", name)
+	}
+	if err := w.store.SetConfigField(config.ScopeGlobal, fmt.Sprintf("mcp.%s.disabled", name), !enabled); err != nil {
+		return fmt.Errorf("failed to save MCP %q disabled flag: %w", name, err)
+	}
+	if err := mcptools.DisableSingle(w.store, name); err != nil {
+		return fmt.Errorf("failed to disconnect MCP %q: %w", name, err)
+	}
+	if !enabled {
+		return nil
+	}
+	return mcptools.InitializeSingle(ctx, name, w.store)
+}
+
+func (w *AppWorkspace) MCPForgetAuth(_ context.Context, name string) error {
+	return mcptools.ForgetAuth(w.store, name)
+}
+
 // -- Lifecycle --
 
 func (w *AppWorkspace) Subscribe(program *tea.Program) {

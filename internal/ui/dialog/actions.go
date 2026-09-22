@@ -151,6 +151,17 @@ type (
 	ActionMCPRefreshResources struct {
 		ServerName string
 	}
+	// ActionMCPSetEnabled disables a running MCP server or enables a disabled
+	// one, persisting the flag so it survives restarts.
+	ActionMCPSetEnabled struct {
+		ServerName string
+		Enabled    bool
+	}
+	// ActionMCPReauth forgets an OAuth MCP server's token and starts the
+	// sign-in flow again.
+	ActionMCPReauth struct {
+		ServerName string
+	}
 )
 
 // Messages for MCP OAuth authentication dialog.

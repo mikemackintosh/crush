@@ -106,6 +106,8 @@ type MCPServers struct {
 	ws     workspace.Workspace
 	keyMap struct {
 		Reconnect,
+		Toggle,
+		Reauth,
 		RefreshTools,
 		RefreshPrompts,
 		RefreshResources,
@@ -142,6 +144,14 @@ func NewMCPServers(com *common.Common, ws workspace.Workspace) *MCPServers {
 	d.keyMap.Reconnect = key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "reconnect"),
+	)
+	d.keyMap.Toggle = key.NewBinding(
+		key.WithKeys("ctrl+e"),
+		key.WithHelp("ctrl+e", "enable/disable"),
+	)
+	d.keyMap.Reauth = key.NewBinding(
+		key.WithKeys("ctrl+a"),
+		key.WithHelp("ctrl+a", "sign in again"),
 	)
 	d.keyMap.RefreshTools = key.NewBinding(
 		key.WithKeys("ctrl+t"),
@@ -235,6 +245,15 @@ func (d *MCPServers) HandleMsg(msg tea.Msg) Action {
 			if item := d.selectedServer(); item != nil {
 				return ActionMCPReconnect{ServerName: item.info.Name}
 			}
+		case key.Matches(msg, d.keyMap.Toggle):
+			if item := d.selectedServer(); item != nil {
+				// A disabled server is enabled; anything else is disabled.
+				return ActionMCPSetEnabled{ServerName: item.info.Name, Enabled: item.info.State == mcp.StateDisabled}
+			}
+		case key.Matches(msg, d.keyMap.Reauth):
+			if item := d.selectedServer(); item != nil {
+				return ActionMCPReauth{ServerName: item.info.Name}
+			}
 		default:
 			var cmd tea.Cmd
 			d.input, cmd = d.input.Update(msg)
@@ -246,6 +265,15 @@ func (d *MCPServers) HandleMsg(msg tea.Msg) Action {
 		}
 	}
 	return nil
+}
+
+// SetFilter pre-fills the filter, so "/mcp <name>" opens the dialog already
+// narrowed to that server.
+func (d *MCPServers) SetFilter(value string) {
+	d.input.SetValue(value)
+	d.list.SetFilter(value)
+	d.list.ScrollToTop()
+	d.list.SetSelected(0)
 }
 
 // selectedServer returns the currently selected MCPServerItem, or nil.
@@ -306,7 +334,8 @@ func (d *MCPServers) ShortHelp() []key.Binding {
 	return []key.Binding{
 		d.keyMap.UpDown,
 		d.keyMap.Reconnect,
-		d.keyMap.RefreshTools,
+		d.keyMap.Toggle,
+		d.keyMap.Reauth,
 		d.keyMap.Close,
 	}
 }
@@ -314,7 +343,8 @@ func (d *MCPServers) ShortHelp() []key.Binding {
 // FullHelp implements help.KeyMap.
 func (d *MCPServers) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{d.keyMap.Reconnect, d.keyMap.RefreshTools, d.keyMap.RefreshPrompts, d.keyMap.RefreshResources},
+		{d.keyMap.Reconnect, d.keyMap.Toggle, d.keyMap.Reauth},
+		{d.keyMap.RefreshTools, d.keyMap.RefreshPrompts, d.keyMap.RefreshResources},
 		{d.keyMap.UpDown, d.keyMap.Close},
 	}
 }

@@ -155,6 +155,11 @@ Flags:
       --disable bool                disable without removing
       --flat-rate bool              use flat-rate billing
       --discover-models bool        auto-discover and merge provider models
+      --oauth-device bool           sign in with the OAuth 2.0 device flow (RFC 8628)
+      --oauth-issuer string         authorization server URL (implies --oauth-device)
+      --oauth-scope string          space-separated scopes for the device flow
+      --oauth-client-id string      pre-registered OAuth client ID (skips dynamic registration)
+      --oauth-client-secret string  secret paired with --oauth-client-id
       --system-prompt-prefix string text prepended to the system prompt
       --extra-header key value      add an HTTP header (repeatable)
       --extra-body JSON             merge a JSON object into request bodies
@@ -178,6 +183,19 @@ provider add openai \
 ```
 
 If `OPENAI_ORG_ID` is unset, the header is simply not sent.
+
+A provider behind an OAuth gateway can skip `--api-key` and sign in with the
+device flow instead. The authorization server is discovered from the base URL
+(RFC 9728 / RFC 8414) and Crush registers itself as a client (RFC 7591):
+
+```bash
+provider add my-gateway \
+  --type openai-compat \
+  --base-url "https://llm.example.com/v1" \
+  --oauth-device true
+```
+
+Run `crush login my-gateway` (or pick one of its models) to sign in.
 
 #### `provider remove`
 

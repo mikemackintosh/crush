@@ -2761,6 +2761,13 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		}
 	}
 
+	// A custom provider on the OAuth device flow is configured before it
+	// is signed in; the first model pick runs the sign-in.
+	if providerCfg, ok := cfg.Providers.Get(providerID); ok && providerCfg.UsesDeviceAuth() && providerCfg.OAuthToken == nil {
+		m.dialog.CloseDialog(dialog.ModelsID)
+		return m.openAuthenticationDialog(msg.Provider, msg.Model, msg.ModelType)
+	}
+
 	if !isConfigured() || msg.ReAuthenticate {
 		m.dialog.CloseDialog(dialog.ModelsID)
 		if cmd := m.openAuthenticationDialog(msg.Provider, msg.Model, msg.ModelType); cmd != nil {
@@ -2858,6 +2865,15 @@ func (m *UI) openAuthenticationDialog(provider catwalk.Provider, model config.Se
 			dlg, cmd = dialog.NewAPIKeyInput(m.com, isOnboarding, provider, model, modelType)
 		}
 	default:
+		providerCfg, configured := m.com.Config().Providers.Get(string(provider.ID))
+		if configured && providerCfg.UsesDeviceAuth() {
+			opts, err := providerCfg.DeviceAuthOptions(m.com.Workspace.Resolver())
+			if err != nil {
+				return util.ReportError(err)
+			}
+			dlg, cmd = dialog.NewOAuthDevice(m.com, isOnboarding, provider, model, modelType, opts)
+			break
+		}
 		dlg, cmd = dialog.NewAPIKeyInput(m.com, isOnboarding, provider, model, modelType)
 	}
 

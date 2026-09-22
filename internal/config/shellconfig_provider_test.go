@@ -83,3 +83,26 @@ provider remove dropme`)
 	require.True(t, keep, "keepme should remain")
 	require.False(t, drop, "dropme should be gone after remove")
 }
+
+func TestShellConfigProviderOAuthDeviceFlags(t *testing.T) {
+	store := loadCrushSh(t, `provider add mygw \
+  --type openai-compat \
+  --base-url "https://gw.example/v1" \
+  --oauth-device true \
+  --oauth-issuer "https://auth.example" \
+  --oauth-scope "llm offline_access" \
+  --oauth-client-id "pre-registered" \
+  --oauth-client-secret "shh" \
+  --discover-models false
+model add mygw/m1 --name "M1" --context-window 8000`)
+
+	p, ok := store.Config().Providers.Get("mygw")
+	require.True(t, ok, "mygw provider should be configured without an api key")
+	require.True(t, p.OAuthDevice)
+	require.True(t, p.UsesDeviceAuth())
+	require.Equal(t, "https://auth.example", p.OAuthIssuer)
+	require.Equal(t, "llm offline_access", p.OAuthScope)
+	require.Equal(t, "pre-registered", p.OAuthClientID)
+	require.Equal(t, "shh", p.OAuthClientSecret)
+	require.Nil(t, p.OAuthToken)
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
+	"github.com/charmbracelet/crush/internal/oauth/device"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/charmbracelet/crush/internal/oauth/openai"
 )
@@ -60,23 +61,33 @@ func Run(ctx context.Context, platform string) (*oauth.Token, error) {
 	if err != nil {
 		return nil, err
 	}
+	return run(ctx, titles[platform], startMessages[platform], newFlow)
+}
 
+// RunDevice authenticates with a custom provider through the OAuth 2.0
+// device authorization flow. name is the provider's display name.
+func RunDevice(ctx context.Context, name string, opts device.Options) (*oauth.Token, error) {
+	newFlow := func() flow { return &deviceFlow{opts: opts} }
+	return run(ctx, name, "Discovering authorization server...", newFlow)
+}
+
+func run(ctx context.Context, title, startMessage string, newFlow func() flow) (*oauth.Token, error) {
 	if term.IsTerminal(os.Stdin.Fd()) {
-		return runTUI(platform, newFlow)
+		return runTUI(title, newFlow)
 	}
-	return runCLI(ctx, platform, newFlow)
+	return runCLI(ctx, startMessage, newFlow)
 }
 
 // runCLI performs the full flow without a TUI and without requiring any
 // keypresses, so it can be driven from scripts and other non-interactive
 // sessions.
-func runCLI(ctx context.Context, platform string, newFlow func() flow) (*oauth.Token, error) {
+func runCLI(ctx context.Context, startMessage string, newFlow func() flow) (*oauth.Token, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
 	f := newFlow()
 
-	fmt.Println(startMessages[platform])
+	fmt.Println(startMessage)
 	url, userCode, err := f.Start(ctx)
 	if err != nil {
 		return nil, err
@@ -208,3 +219,29 @@ func (f *openaiFlow) Close() {
 		f.f.Close()
 	}
 }
+
+// deviceFlow runs the standard OAuth 2.0 device authorization flow
+// (RFC 8628) against a custom provider's authorization server.
+type deviceFlow struct {
+	opts device.Options
+	f    *device.Flow
+}
+
+func (f *deviceFlow) Start(ctx context.Context) (string, string, error) {
+	df, err := device.NewFlow(ctx, f.opts)
+	if err != nil {
+		return "", "", err
+	}
+	auth, err := df.Start(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	f.f = df
+	return auth.VerificationURL, auth.UserCode, nil
+}
+
+func (f *deviceFlow) Wait(ctx context.Context) (*oauth.Token, error) {
+	return f.f.Wait(ctx)
+}
+
+func (deviceFlow) Close() {}

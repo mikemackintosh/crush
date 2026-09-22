@@ -75,6 +75,9 @@ provider remove <id>         # alias: rm — removes the provider and its models
 Flags: `--name`, `--type` (`openai`, `openai-compat`, `anthropic`, or a local
 type like `ollama`, `lmstudio`, `llamacpp`), `--api-key`, `--base-url`,
 `--disable BOOL`, `--flat-rate BOOL`, `--discover-models BOOL`,
+`--oauth-device BOOL` (sign in with the OAuth device flow; `--oauth-issuer URL`,
+`--oauth-scope SCOPES`, `--oauth-client-id ID`, `--oauth-client-secret SECRET`
+refine it; then `crush login <id>`),
 `--system-prompt-prefix TEXT`, `--extra-header KEY VALUE` (repeatable),
 `--extra-body JSON`, `--provider-options JSON`.
 

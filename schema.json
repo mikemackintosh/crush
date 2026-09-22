@@ -665,6 +665,28 @@
           "$ref": "#/$defs/Token",
           "description": "OAuth2 token for authentication with the provider"
         },
+        "oauth_device": {
+          "type": "boolean",
+          "description": "Authenticate through the OAuth 2.0 device authorization flow (RFC 8628). The authorization server is discovered from base_url (RFC 9728) unless oauth_issuer is set, and a client is registered dynamically (RFC 7591) unless oauth_client_id is set",
+          "default": false
+        },
+        "oauth_issuer": {
+          "type": "string",
+          "format": "uri",
+          "description": "Authorization server URL for the OAuth device flow (RFC 8414 discovery). Setting it implies oauth_device"
+        },
+        "oauth_scope": {
+          "type": "string",
+          "description": "Space-separated scopes requested during the OAuth device flow"
+        },
+        "oauth_client_id": {
+          "type": "string",
+          "description": "Pre-registered OAuth client ID for authorization servers without dynamic client registration"
+        },
+        "oauth_client_secret": {
+          "type": "string",
+          "description": "Pre-registered OAuth client secret paired with oauth_client_id"
+        },
         "disable": {
           "type": "boolean",
           "description": "Whether this provider is disabled",

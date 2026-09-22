@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +22,8 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Crush to a platform",
 	Long: `Login Crush to a specified platform.
 The platform should be provided as an argument.
-Available platforms are: hyper, copilot, openai.`,
+Available platforms are: hyper, copilot, openai, or the ID of any custom
+provider configured with oauth_device or oauth_issuer (OAuth 2.0 device flow).`,
 	Example: `
 # Authenticate with Charm Hyper
 crush login
@@ -31,6 +33,9 @@ crush login copilot
 
 # Authenticate with a ChatGPT (OpenAI) account
 crush login openai
+
+# Authenticate with a custom provider that uses the OAuth device flow
+crush login my-gateway
 
 # Force re-authentication even if already logged in
 crush login -f copilot
@@ -64,7 +69,7 @@ crush login -f copilot
 		case "openai", "chatgpt":
 			return loginOpenAI(ws, force)
 		default:
-			return fmt.Errorf("unknown platform: %s", args[0])
+			return loginDevice(ws, provider, force)
 		}
 	},
 }
@@ -186,4 +191,46 @@ func getLoginContext() context.Context {
 		cancel()
 	}()
 	return ctx
+}
+
+// loginDevice signs in to a custom provider through the OAuth 2.0 device
+// authorization flow. The provider must be configured with oauth_device
+// or oauth_issuer.
+func loginDevice(ws workspace.Workspace, providerID string, force bool) error {
+	cfg := ws.Config()
+	if cfg == nil {
+		return fmt.Errorf("unknown platform: %s", providerID)
+	}
+	pc, ok := cfg.Providers.Get(providerID)
+	if !ok {
+		return fmt.Errorf("unknown platform: %s (not a configured provider)", providerID)
+	}
+	if !pc.UsesDeviceAuth() {
+		return fmt.Errorf("provider %s is not configured for OAuth device login; set oauth_device or oauth_issuer on it", providerID)
+	}
+	name := cmp.Or(pc.Name, providerID)
+	if !force && pc.OAuthToken != nil {
+		fmt.Printf("You are already logged in to %s.\n", name)
+		fmt.Println("Use --force to re-authenticate.")
+		return nil
+	}
+
+	opts, err := pc.DeviceAuthOptions(ws.Resolver())
+	if err != nil {
+		return err
+	}
+
+	ctx := getLoginContext()
+	token, err := login.RunDevice(ctx, name, opts)
+	if err != nil {
+		return err
+	}
+
+	if err := ws.SetProviderAPIKey(config.ScopeGlobal, providerID, token); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Printf("You're now authenticated with %s!\n", name)
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
+	"github.com/charmbracelet/crush/internal/oauth/device"
 	"github.com/invopop/jsonschema"
 )
 
@@ -104,6 +105,27 @@ type ProviderConfig struct {
 	APIKeyTemplate string `json:"-"`
 	// OAuthToken for providers that use OAuth2 authentication.
 	OAuthToken *oauth.Token `json:"oauth,omitempty" jsonschema:"description=OAuth2 token for authentication with the provider"`
+
+	// OAuthDevice makes the provider authenticate through the OAuth 2.0
+	// device authorization flow (RFC 8628) instead of a static API key.
+	// The authorization server is discovered from base_url (RFC 9728)
+	// unless OAuthIssuer names it, and Crush registers itself as a client
+	// (RFC 7591) unless OAuthClientID is set. Sign in with
+	// `crush login <provider-id>` or by picking one of its models.
+	OAuthDevice bool `json:"oauth_device,omitempty" jsonschema:"description=Authenticate through the OAuth 2.0 device authorization flow (RFC 8628). The authorization server is discovered from base_url (RFC 9728) unless oauth_issuer is set\\, and a client is registered dynamically (RFC 7591) unless oauth_client_id is set,default=false"`
+	// OAuthIssuer is the authorization server URL for the device flow.
+	// Setting it implies OAuthDevice.
+	OAuthIssuer string `json:"oauth_issuer,omitempty" jsonschema:"description=Authorization server URL for the OAuth device flow (RFC 8414 discovery). Setting it implies oauth_device,format=uri"`
+	// OAuthScope is the space-separated scope string requested during
+	// the device flow.
+	OAuthScope string `json:"oauth_scope,omitempty" jsonschema:"description=Space-separated scopes requested during the OAuth device flow"`
+	// OAuthClientID is an optional pre-registered client ID for
+	// authorization servers without dynamic client registration. Values
+	// run through shell expansion.
+	OAuthClientID string `json:"oauth_client_id,omitempty" jsonschema:"description=Pre-registered OAuth client ID for authorization servers without dynamic client registration"`
+	// OAuthClientSecret is the optional secret paired with OAuthClientID
+	// for confidential clients. Values run through shell expansion.
+	OAuthClientSecret string `json:"oauth_client_secret,omitempty" jsonschema:"description=Pre-registered OAuth client secret paired with oauth_client_id"`
 	// Marks the provider as disabled.
 	Disable bool `json:"disable,omitempty" jsonschema:"description=Whether this provider is disabled,default=false"`
 
@@ -199,6 +221,37 @@ func (c *ProviderConfig) HasAPIKey(resolver VariableResolver) bool {
 	}
 	v, err := resolver.ResolveValue(c.APIKey)
 	return err == nil && v != ""
+}
+
+// UsesDeviceAuth reports whether the provider signs in through the OAuth
+// device authorization flow rather than a static API key.
+func (c *ProviderConfig) UsesDeviceAuth() bool {
+	return c.OAuthDevice || c.OAuthIssuer != ""
+}
+
+// DeviceAuthOptions builds the device flow options for the provider. The
+// client ID and secret run through shell expansion; a registration saved
+// with an earlier token is offered for reuse.
+func (c *ProviderConfig) DeviceAuthOptions(resolver VariableResolver) (device.Options, error) {
+	clientID, err := resolver.ResolveValue(c.OAuthClientID)
+	if err != nil {
+		return device.Options{}, fmt.Errorf("resolve oauth_client_id: %w", err)
+	}
+	clientSecret, err := resolver.ResolveValue(c.OAuthClientSecret)
+	if err != nil {
+		return device.Options{}, fmt.Errorf("resolve oauth_client_secret: %w", err)
+	}
+	opts := device.Options{
+		Issuer:       c.OAuthIssuer,
+		ResourceURL:  c.BaseURL,
+		Scope:        c.OAuthScope,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}
+	if c.OAuthToken != nil {
+		opts.Client = c.OAuthToken.Client
+	}
+	return opts, nil
 }
 
 type MCPType string

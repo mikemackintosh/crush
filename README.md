@@ -788,6 +788,33 @@ model add custom-anthropic/claude-sonnet-4-20250514 \
   --price-cache-hit 0.3
 ```
 
+#### OAuth Device Flow (RFC 8628)
+
+A provider behind an OAuth-protected gateway can sign in with the standard
+device authorization flow instead of a static API key. Crush discovers the
+authorization server from the base URL (RFC 9728, falling back to RFC 8414 or
+OpenID Connect discovery), registers itself as a public client through dynamic
+client registration (RFC 7591), and refreshes the access token with the
+`refresh_token` grant when it expires.
+
+```bash
+provider add my-gateway --type openai-compat \
+  --base-url "https://llm.example.com/v1" \
+  --oauth-device true \
+  --oauth-scope "llm offline_access"
+
+model add my-gateway/gpt-5 --name "GPT-5" --context-window 200000
+```
+
+Then sign in once with `crush login my-gateway`, or pick one of the provider's
+models in the model picker and complete the device code in your browser.
+`crush logout my-gateway` removes the credential again.
+
+- `--oauth-issuer URL` names the authorization server directly when the
+  gateway does not publish protected resource metadata.
+- `--oauth-client-id ID` (and `--oauth-client-secret`) use a pre-registered
+  client when the server does not offer dynamic client registration.
+
 ### Amazon Bedrock
 
 Crush currently supports running Anthropic models through Bedrock, with caching disabled.

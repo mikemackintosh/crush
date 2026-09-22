@@ -29,7 +29,8 @@ var logoutCmd = &cobra.Command{
 	Long: `Logout Crush from a specified platform, removing stored credentials.
 The platform should be provided as an argument.
 If no argument is given, a list of logged-in platforms will be shown.
-Available platforms are: hyper, copilot, openai.`,
+Available platforms are: hyper, copilot, openai, or the ID of any custom
+provider signed in through the OAuth device flow.`,
 	Example: `
 # Sign out from Charm Hyper
 crush logout hyper
@@ -39,6 +40,9 @@ crush logout copilot
 
 # Sign out from your ChatGPT (OpenAI) account
 crush logout openai
+
+# Sign out from a custom provider that uses the OAuth device flow
+crush logout my-gateway
   `,
 	ValidArgs: []cobra.Completion{
 		"hyper",
@@ -77,21 +81,28 @@ crush logout openai
 		}
 
 		// Canonicalize aliases before prompting.
+		displayName := providerDisplayNames[provider]
 		switch provider {
 		case "hyper":
 		case "copilot", "github", "github-copilot":
 			provider = "copilot"
+			displayName = providerDisplayNames[provider]
 		case "openai", "chatgpt":
 			provider = "openai"
+			displayName = providerDisplayNames[provider]
 		default:
-			return fmt.Errorf("unknown platform: %s", provider)
+			pc, ok := deviceAuthProvider(c, ws.ID, provider)
+			if !ok {
+				return fmt.Errorf("unknown platform: %s", provider)
+			}
+			displayName = cmp.Or(pc.Name, provider)
 		}
 
 		force, _ := cmd.Flags().GetBool("force")
 		// Picking a platform from the list is an explicit choice already,
 		// so only ask for confirmation when no choice was made.
 		if !force && !chose {
-			ok, err := logout.Confirm(fmt.Sprintf("Are you sure you want to log out of %s?", providerDisplayNames[provider]))
+			ok, err := logout.Confirm(fmt.Sprintf("Are you sure you want to log out of %s?", displayName))
 			if err != nil {
 				return err
 			}
@@ -109,7 +120,7 @@ crush logout openai
 		case "openai":
 			return logoutOpenAI(c, ws.ID)
 		default:
-			return fmt.Errorf("unknown platform: %s", provider)
+			return logoutDevice(c, ws.ID, provider, displayName)
 		}
 	},
 }
@@ -185,6 +196,16 @@ func pickLoggedInProvider(c *client.Client, wsID string) (string, bool, error) {
 			}{id: id, name: providerDisplayNames[id]})
 		}
 	}
+	// Custom providers signed in through the OAuth device flow.
+	for id, p := range cfg.Providers.Seq2() {
+		if _, builtin := providerDisplayNames[id]; builtin || !p.UsesDeviceAuth() || p.OAuthToken == nil {
+			continue
+		}
+		loggedIn = append(loggedIn, struct {
+			id   string
+			name string
+		}{id: id, name: cmp.Or(p.Name, id)})
+	}
 
 	if len(loggedIn) == 0 {
 		fmt.Println("You are not logged in to any platform.")
@@ -223,4 +244,35 @@ func getLogoutContext() context.Context {
 		os.Exit(1)
 	}()
 	return ctx
+}
+
+// deviceAuthProvider returns the custom provider with the given ID when it
+// signs in through the OAuth device flow.
+func deviceAuthProvider(c *client.Client, wsID, providerID string) (config.ProviderConfig, bool) {
+	cfg, err := c.GetConfig(getLogoutContext(), wsID)
+	if err != nil {
+		return config.ProviderConfig{}, false
+	}
+	pc, ok := cfg.Providers.Get(providerID)
+	if !ok || !pc.UsesDeviceAuth() {
+		return config.ProviderConfig{}, false
+	}
+	return pc, true
+}
+
+func logoutDevice(c *client.Client, wsID, providerID, displayName string) error {
+	ctx := getLogoutContext()
+
+	// The API key mirrors the access token, so both go. Dropping the
+	// token also drops the client registration saved with it; the next
+	// login registers again.
+	if err := cmp.Or(
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, fmt.Sprintf("providers.%s.api_key", providerID)),
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, fmt.Sprintf("providers.%s.oauth", providerID)),
+	); err != nil {
+		return err
+	}
+
+	fmt.Printf("Successfully logged out of %s.\n", displayName)
+	return nil
 }

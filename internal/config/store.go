@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/crush/internal/lock"
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/oauth/copilot"
+	"github.com/charmbracelet/crush/internal/oauth/device"
 	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/charmbracelet/crush/internal/oauth/openai"
 	"github.com/tidwall/gjson"
@@ -810,7 +811,7 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope, 
 
 	// Disk still holds our token (or no newer peer token exists) and we hold
 	// the lock, so we are the sole exchanger. Perform the exchange.
-	refreshedToken, refreshErr := s.exchange(ctx, providerID, entryToken.RefreshToken)
+	refreshedToken, refreshErr := s.exchange(ctx, providerID, entryToken)
 	if refreshErr != nil {
 		// The exchange may have failed because a peer rotated the refresh
 		// token in a window we did not cover. Re-check disk: adopt a usable
@@ -821,7 +822,7 @@ func (s *ConfigStore) refreshOAuthTokenLocked(ctx context.Context, scope Scope, 
 				return s.applyToken(providerConfig, diskToken, providerID)
 			}
 			slog.Info("Retrying exchange with refresh token rotated by another session", "provider", providerID)
-			refreshedToken, refreshErr = s.exchange(ctx, providerID, diskToken.RefreshToken)
+			refreshedToken, refreshErr = s.exchange(ctx, providerID, diskToken)
 		}
 	}
 	if refreshErr != nil {
@@ -963,21 +964,25 @@ func (s *ConfigStore) usableDiskToken(scope Scope, providerID string, entryToken
 
 // exchange performs the provider-specific OAuth token exchange. Tests may
 // override it via the exchangeToken field; production uses the real
-// provider clients.
-func (s *ConfigStore) exchange(ctx context.Context, providerID, refreshToken string) (*oauth.Token, error) {
+// provider clients. A token that carries its own client registration
+// (a custom provider signed in through the device flow) is refreshed at
+// the token endpoint recorded in that registration.
+func (s *ConfigStore) exchange(ctx context.Context, providerID string, token *oauth.Token) (*oauth.Token, error) {
 	if s.exchangeToken != nil {
-		return s.exchangeToken(ctx, providerID, refreshToken)
+		return s.exchangeToken(ctx, providerID, token.RefreshToken)
 	}
 	switch providerID {
 	case string(catwalk.InferenceProviderCopilot):
-		return copilot.RefreshToken(ctx, refreshToken)
+		return copilot.RefreshToken(ctx, token.RefreshToken)
 	case string(catwalk.InferenceProviderOpenAI):
-		return openai.RefreshToken(ctx, refreshToken)
+		return openai.RefreshToken(ctx, token.RefreshToken)
 	case hyperp.Name:
-		return hyper.ExchangeToken(ctx, refreshToken)
-	default:
-		return nil, fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
+		return hyper.ExchangeToken(ctx, token.RefreshToken)
 	}
+	if token.Client != nil && token.Client.TokenURL != "" {
+		return device.RefreshToken(ctx, token)
+	}
+	return nil, fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
 }
 
 // withRefreshLock runs fn while holding the per-provider cross-process

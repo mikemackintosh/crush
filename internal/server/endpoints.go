@@ -604,5 +604,13 @@ func (c *controllerV1) endpoints() []apigen.Endpoint {
 			PathParam("id", "Workspace ID").
 			Fails(404, 500).
 			Handle(c.handlePostWorkspaceMCPDisableDocker),
+
+		apigen.Post("/v1/workspaces/{id}/mcp/reconnect").
+			Summary("Reconnect an MCP server").
+			Tags("mcp").
+			PathParam("id", "Workspace ID").
+			Accepts(proto.MCPNameRequest{}).
+			Fails(400, 404, 500).
+			Handle(c.handlePostWorkspaceMCPReconnect),
 	}
 }

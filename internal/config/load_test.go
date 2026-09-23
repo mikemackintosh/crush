@@ -2547,3 +2547,39 @@ func TestConfig_LoadFromBytes_EnvMerge(t *testing.T) {
 	require.Equal(t, "second", loadedConfig.Env["AWS_PROFILE"])
 	require.Equal(t, "us-east-1", loadedConfig.Env["AWS_REGION"])
 }
+
+// Claude Code writes hooks as {matcher, hooks:[{type, command}]} groups.
+// ValidateHooks flattens them so every consumer sees flat entries, and
+// refuses the hook types Crush cannot run.
+func TestValidateHooksFlattensClaudeCodeGroups(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{Hooks: map[string][]HookConfig{
+		"pre_tool_use": {
+			{Matcher: "^bash$", Name: "guard", Timeout: 5, Hooks: []HookConfig{
+				{Type: "command", Command: "./a.sh"},
+				{Type: "command", Command: "./b.sh", Matcher: "^edit$", Timeout: 9},
+			}},
+			{Command: "./flat.sh"},
+		},
+		"Stop": {{Command: "./stop.sh"}},
+	}}
+	require.NoError(t, cfg.ValidateHooks())
+
+	pre := cfg.Hooks[HookEventPreToolUse]
+	require.Len(t, pre, 3)
+	require.Equal(t, "./a.sh", pre[0].Command)
+	require.Equal(t, "^bash$", pre[0].Matcher, "inherits the group matcher")
+	require.Equal(t, "guard", pre[0].Name)
+	require.Equal(t, 5, pre[0].Timeout)
+	require.Equal(t, "^edit$", pre[1].Matcher, "keeps its own matcher")
+	require.Equal(t, 9, pre[1].Timeout)
+	require.Nil(t, pre[1].Hooks)
+	require.Equal(t, "./flat.sh", pre[2].Command)
+	require.Len(t, cfg.Hooks[HookEventStop], 1)
+
+	bad := &Config{Hooks: map[string][]HookConfig{"Stop": {{Type: "prompt", Command: "x"}}}}
+	require.ErrorContains(t, bad.ValidateHooks(), "not supported")
+
+	unknown := &Config{Hooks: map[string][]HookConfig{"OnCoffee": {{Command: "x"}}}}
+	require.ErrorContains(t, unknown.ValidateHooks(), "unknown event")
+}

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
@@ -161,6 +162,12 @@ type coordinator struct {
 	mainAgentName string
 	agents        map[string]SessionAgent
 
+	// hookRunner is rebuilt with the main agent's tools; nil when no hooks
+	// are configured. hookSessions records every session this process has
+	// run, for SessionStart (first use) and SessionEnd (shutdown).
+	hookRunner   atomic.Pointer[hooks.Runner]
+	hookSessions sync.Map
+
 	// Skills discovery results (session-start snapshot).
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
 	activeSkills []*skills.Skill // Post-filter: active skills only.
@@ -253,6 +260,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 
 	c.mainAgent = agent
 	c.mainAgentName = config.AgentCoder
+	c.watchPermissionPrompts(ctx)
 	return c, nil
 }
 
@@ -302,6 +310,17 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
+	}
+
+	// Lifecycle hooks that run before the model sees the prompt. A blocked
+	// prompt never reaches the agent; hook context rides along with it.
+	if !stopHookActive(ctx) {
+		startCtx := c.fireSessionStart(ctx, sessionID)
+		promptCtx, err := c.fireUserPromptSubmit(ctx, sessionID, prompt)
+		if err != nil {
+			return nil, err
+		}
+		prompt = withHookContext(withHookContext(prompt, startCtx), promptCtx)
 	}
 
 	// MCP servers connect asynchronously (see mcp.Initialize).
@@ -394,11 +413,21 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			OnComplete:        onComplete,
 			Accepted:          accept,
 			OnAuthRefresh:     c.makeAuthRefreshCallback(providerCfg),
+			OnPreCompact:      func(ctx context.Context) error { return c.firePreCompact(ctx, sessionID, "auto") },
 		})
 	}
 	beforeLoaded := c.skillTracker.LoadedNames()
 	result, originalErr := run()
 	logTurnSkillUsage(sessionID, prompt, c.activeSkills, c.skillTracker, beforeLoaded)
+	// Stop hooks may send the agent back to work; run reads prompt and ctx
+	// through the enclosing variables, so the loop only has to set them.
+	result, originalErr = c.runStopLoop(hooks.EventStop, &ctx, sessionID, &prompt, run, result, originalErr)
+	switch {
+	case originalErr != nil && ctx.Err() == nil:
+		c.fireNotification(ctx, sessionID, "error", originalErr.Error())
+	case originalErr == nil:
+		c.fireNotification(ctx, sessionID, "agent_finished", "The agent finished its turn.")
+	}
 
 	// Notify only if still unauthorized after retry — a successful
 	// retry means the user doesn't need to re-authenticate. AWS SSO is
@@ -830,10 +859,14 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "crush.log")
 
-	// Build hook runner if PreToolUse hooks are configured.
+	// Build the hook runner for every configured event. The main agent's
+	// build publishes it for the lifecycle events; sub-agents share it.
 	var hookRunner *hooks.Runner
-	if preToolHooks := c.cfg.Config().Hooks[hooks.EventPreToolUse]; len(preToolHooks) > 0 {
-		hookRunner = hooks.NewRunner(preToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	if all := c.cfg.Config().Hooks; len(all) > 0 {
+		hookRunner = hooks.NewEventRunner(all, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	}
+	if !isSubAgent {
+		c.hookRunner.Store(hookRunner)
 	}
 
 	allTools = append(
@@ -1452,6 +1485,9 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 	if err := c.refreshTokenIfExpired(ctx, providerCfg); err != nil {
 		slog.Error("Failed to refresh OAuth2 token before summarize. Proceeding with existing token.", "error", err)
 	}
+	if err := c.firePreCompact(ctx, sessionID, "manual"); err != nil {
+		return err
+	}
 
 	// Auth failures during summarize flow through fantasy's OnAuthRefresh,
 	// the same path used by regular turns.
@@ -1646,11 +1682,17 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
 	}
 
-	// Run the agent
+	// Run the agent. subPromptOverride is set by a SubagentStop hook that
+	// sends the sub-agent back to work with its reason as the next prompt.
+	var subPromptOverride string
 	run := func() (*fantasy.AgentResult, error) {
+		prompt := params.Prompt
+		if subPromptOverride != "" {
+			prompt = subPromptOverride
+		}
 		return params.Agent.Run(ctx, SessionAgentCall{
 			SessionID:        session.ID,
-			Prompt:           params.Prompt,
+			Prompt:           prompt,
 			MaxOutputTokens:  maxTokens,
 			ProviderOptions:  getProviderOptions(model, providerCfg),
 			Temperature:      model.ModelCfg.Temperature,
@@ -1660,9 +1702,11 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 			PresencePenalty:  model.ModelCfg.PresencePenalty,
 			NonInteractive:   true,
 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
+			OnPreCompact:     func(ctx context.Context) error { return c.firePreCompact(ctx, session.ID, "auto") },
 		})
 	}
 	result, err := run()
+	result, err = c.runStopLoop(hooks.EventSubagentStop, &ctx, session.ID, &subPromptOverride, run, result, err)
 	// Notify only if still unauthorized after retry. AWS SSO is handled
 	// transparently inside OnAuthRefresh, so it needs no post-run notice.
 	if err != nil && isUnauthorized(err) && c.notify != nil && model.ModelCfg.Provider == hyper.Name {

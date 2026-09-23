@@ -413,9 +413,14 @@ Usage:
 Flags:
       --command string           shell command to run (required)
       --name string              name used for later removal
-      --matcher string           regex tested against the tool name
+      --matcher string           regex tested against the event's subject
       --timeout int              timeout in seconds (default 30)
+      --async bool               run in the background without waiting
 ```
+
+Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`Notification`, `PreCompact`, `SubagentStop`, `Stop`, `SessionEnd`. The same
+command is available from the shell as `crush hook add`.
 
 ```bash
 hook add PreToolUse --matcher "^bash$" \

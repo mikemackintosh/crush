@@ -96,7 +96,66 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 	}
 
 	resp.Metadata = mergeHookMetadata(resp.Metadata, result)
-	return resp, nil
+	return h.postToolUse(ctx, sessionID, call, resp), nil
+}
+
+// postToolUse runs PostToolUse hooks with the tool's response. The tool
+// has already run, so a block cannot undo it; its reason is appended as
+// feedback for the model, as is any additional context. A halt ends the
+// turn.
+func (h *hookedTool) postToolUse(ctx context.Context, sessionID string, call fantasy.ToolCall, resp fantasy.ToolResponse) fantasy.ToolResponse {
+	if !h.runner.Has(hooks.EventPostToolUse) {
+		return resp
+	}
+	result, err := h.runner.RunEvent(ctx, hooks.Event{
+		Name:      hooks.EventPostToolUse,
+		SessionID: sessionID,
+		MatchKey:  call.Name,
+		ToolName:  call.Name,
+		ToolInput: call.Input,
+		Fields: map[string]any{
+			"tool_response": map[string]any{
+				"content":  resp.Content,
+				"is_error": resp.IsError,
+			},
+		},
+	})
+	if err != nil {
+		slog.Warn("PostToolUse hook error", "tool", call.Name, "error", err)
+		return resp
+	}
+	if result.HookCount == 0 {
+		return resp
+	}
+	if result.Decision == hooks.DecisionDeny && result.Reason != "" {
+		resp.Content += "\n\nHook feedback: " + result.Reason
+	}
+	if result.Context != "" {
+		resp.Content += "\n" + result.Context
+	}
+	if result.Halt {
+		resp.StopTurn = true
+	}
+	resp.Metadata = mergePostHookMetadata(resp.Metadata, result)
+	return resp
+}
+
+// mergePostHookMetadata records the PostToolUse outcome under its own key
+// so it never overwrites the PreToolUse entry the UI renders.
+func mergePostHookMetadata(existing string, result hooks.AggregateResult) string {
+	meta := buildHookMetadata(result)
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return existing
+	}
+	if existing == "" {
+		existing = "{}"
+	}
+	merged, err := sjson.SetRaw(existing, "post_hook", string(data))
+	if err != nil {
+		return existing
+	}
+	return merged
 }
 
 // buildHookMetadata creates a HookMetadata from an AggregateResult.

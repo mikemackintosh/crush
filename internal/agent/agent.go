@@ -85,15 +85,18 @@ type SessionAgentCall struct {
 	RunID             string
 	HiddenUserMessage bool
 	Prompt            string
-	ProviderOptions   fantasy.ProviderOptions
-	Attachments       []message.Attachment
-	MaxOutputTokens   int64
-	Temperature       *float64
-	TopP              *float64
-	TopK              *int64
-	FrequencyPenalty  *float64
-	PresencePenalty   *float64
-	NonInteractive    bool
+	// OnPreCompact, when non-nil, runs before an automatic compaction. An
+	// error skips the compaction for this turn.
+	OnPreCompact     func(ctx context.Context) error
+	ProviderOptions  fantasy.ProviderOptions
+	Attachments      []message.Attachment
+	MaxOutputTokens  int64
+	Temperature      *float64
+	TopP             *float64
+	TopK             *int64
+	FrequencyPenalty *float64
+	PresencePenalty  *float64
+	NonInteractive   bool
 	// OnComplete, when non-nil, replaces the default RunComplete
 	// publish path: the inner Run hands the terminal payload to this
 	// callback instead of emitting it on the RunComplete broker. The
@@ -1195,6 +1198,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, err
 	}
 
+	if shouldSummarize && call.OnPreCompact != nil {
+		if err := call.OnPreCompact(genCtx); err != nil {
+			slog.Warn("PreCompact hook halted automatic compaction", "error", err)
+			shouldSummarize = false
+		}
+	}
 	if shouldSummarize {
 		a.activeRequests.Del(call.SessionID)
 		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions, call.OnAuthRefresh); summarizeErr != nil {

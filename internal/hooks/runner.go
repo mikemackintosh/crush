@@ -19,6 +19,9 @@ import (
 // cmd.WaitDelay = time.Second behavior of the previous os/exec path.
 const abandonGrace = time.Second
 
+// asyncTimeout bounds a background hook that declared no timeout of its own.
+const asyncTimeout = 5 * time.Minute
+
 // runShell is the shell executor used by runOne. It is a package-level
 // variable so tests can substitute a blocking or non-yielding
 // implementation to exercise the abandon-on-timeout path without
@@ -26,7 +29,7 @@ const abandonGrace = time.Second
 var runShell = shell.Run
 
 // compiledHook pairs a HookConfig with its compiled matcher regex. A nil
-// matcher means "match every tool".
+// matcher means "match every subject".
 type compiledHook struct {
 	cfg     config.HookConfig
 	matcher *regexp.Regexp
@@ -34,119 +37,187 @@ type compiledHook struct {
 
 // Runner executes hook commands and aggregates their results.
 type Runner struct {
-	hooks      []compiledHook
+	byEvent    map[string][]compiledHook
 	cwd        string
 	projectDir string
 }
 
-// NewRunner creates a Runner from the given hook configs. Each hook's
-// Matcher is compiled here so the Runner is self-sufficient; callers do
-// not have to pre-compile matchers on the config, and reloads or merges
-// that rebuild HookConfig values can't silently strip compiled state.
+// NewRunner creates a Runner whose hooks all fire on PreToolUse. It is the
+// single-event form kept for callers and tests that predate the other
+// events; NewEventRunner is the general constructor.
+func NewRunner(hooks []config.HookConfig, cwd, projectDir string) *Runner {
+	return NewEventRunner(map[string][]config.HookConfig{EventPreToolUse: hooks}, cwd, projectDir)
+}
+
+// NewEventRunner creates a Runner from hooks keyed by event name, as in
+// Config.Hooks. Each hook's Matcher is compiled here so the Runner is
+// self-sufficient; callers do not have to pre-compile matchers on the
+// config, and reloads or merges that rebuild HookConfig values can't
+// silently strip compiled state.
 //
 // Hooks whose matcher fails to compile are skipped with a warning rather
 // than treated as match-everything. ValidateHooks is expected to have
 // caught syntax errors earlier, so this is defense in depth.
-func NewRunner(hooks []config.HookConfig, cwd, projectDir string) *Runner {
-	compiled := make([]compiledHook, 0, len(hooks))
-	for _, h := range hooks {
-		ch := compiledHook{cfg: h}
-		if h.Matcher != "" {
-			re, err := regexp.Compile(h.Matcher)
-			if err != nil {
-				slog.Warn(
-					"Hook matcher failed to compile; skipping hook",
-					"matcher", h.Matcher,
-					"command", h.Command,
-					"error", err,
-				)
-				continue
+func NewEventRunner(hooks map[string][]config.HookConfig, cwd, projectDir string) *Runner {
+	byEvent := make(map[string][]compiledHook, len(hooks))
+	for event, list := range hooks {
+		compiled := make([]compiledHook, 0, len(list))
+		for _, h := range list {
+			ch := compiledHook{cfg: h}
+			if h.Matcher != "" {
+				re, err := regexp.Compile(h.Matcher)
+				if err != nil {
+					slog.Warn(
+						"Hook matcher failed to compile; skipping hook",
+						"event", event,
+						"matcher", h.Matcher,
+						"command", h.Command,
+						"error", err,
+					)
+					continue
+				}
+				ch.matcher = re
 			}
-			ch.matcher = re
+			compiled = append(compiled, ch)
 		}
-		compiled = append(compiled, ch)
+		if len(compiled) > 0 {
+			byEvent[event] = compiled
+		}
 	}
 	return &Runner{
-		hooks:      compiled,
+		byEvent:    byEvent,
 		cwd:        cwd,
 		projectDir: projectDir,
 	}
 }
 
-// Hooks returns the hook configs the runner was created with, in config
-// order. Hooks whose matcher failed to compile at construction are
-// omitted. Intended for diagnostics; callers should not rely on ordering
-// or identity beyond that.
+// Has reports whether any hook is configured for the event, so callers can
+// skip building an Event payload nobody will read.
+func (r *Runner) Has(event string) bool {
+	return r != nil && len(r.byEvent[event]) > 0
+}
+
+// Hooks returns the PreToolUse hook configs the runner was created with,
+// in config order. Hooks whose matcher failed to compile at construction
+// are omitted. Intended for diagnostics; callers should not rely on
+// ordering or identity beyond that.
 func (r *Runner) Hooks() []config.HookConfig {
-	out := make([]config.HookConfig, len(r.hooks))
-	for i, h := range r.hooks {
+	return r.HooksFor(EventPreToolUse)
+}
+
+// HooksFor returns the hook configs for one event, in config order.
+func (r *Runner) HooksFor(event string) []config.HookConfig {
+	list := r.byEvent[event]
+	out := make([]config.HookConfig, len(list))
+	for i, h := range list {
 		out[i] = h.cfg
 	}
 	return out
 }
 
-// Run executes all matching hooks for the given event and tool, returning
-// an aggregated result.
+// Run executes all matching hooks for a tool event, returning an
+// aggregated result. It is the tool-shaped entry point; RunEvent takes
+// any Event.
 func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolInputJSON string) (AggregateResult, error) {
-	matching := r.matchingHooks(toolName)
+	return r.RunEvent(ctx, Event{
+		Name:      eventName,
+		SessionID: sessionID,
+		MatchKey:  toolName,
+		ToolName:  toolName,
+		ToolInput: toolInputJSON,
+	})
+}
+
+// RunEvent executes all hooks configured for ev.Name whose matcher accepts
+// ev.MatchKey. Synchronous hooks run in parallel and their results compose
+// in config order; async hooks are started and forgotten.
+func (r *Runner) RunEvent(ctx context.Context, ev Event) (AggregateResult, error) {
+	matching := r.matchingHooks(ev.Name, ev.MatchKey)
 	if len(matching) == 0 {
 		return AggregateResult{Decision: DecisionNone}, nil
 	}
 
 	// Deduplicate by command string.
 	seen := make(map[string]bool, len(matching))
-	var deduped []config.HookConfig
+	var sync_, async []config.HookConfig
 	for _, h := range matching {
 		if seen[h.Command] {
 			continue
 		}
 		seen[h.Command] = true
-		deduped = append(deduped, h)
+		if h.Async {
+			async = append(async, h)
+		} else {
+			sync_ = append(sync_, h)
+		}
 	}
 
-	envVars := BuildEnv(eventName, toolName, sessionID, r.cwd, r.projectDir, toolInputJSON)
-	payload := BuildPayload(eventName, sessionID, r.cwd, toolName, toolInputJSON)
+	envVars := BuildEnv(ev.Name, ev.ToolName, ev.SessionID, r.cwd, r.projectDir, ev.ToolInput)
+	payload := BuildEventPayload(ev, r.cwd)
+	plainContext := plainTextIsContext(ev.Name)
 
-	results := make([]HookResult, len(deduped))
+	for _, h := range async {
+		go func(hook config.HookConfig) {
+			timeout := asyncTimeout
+			if hook.Timeout > 0 {
+				timeout = hook.TimeoutDuration()
+			}
+			actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+			defer cancel()
+			r.runOne(actx, hook, envVars, payload, plainContext)
+		}(h)
+	}
+
+	results := make([]HookResult, len(sync_))
 	var wg sync.WaitGroup
-	wg.Add(len(deduped))
-
-	for i, h := range deduped {
+	wg.Add(len(sync_))
+	for i, h := range sync_ {
 		go func(idx int, hook config.HookConfig) {
 			defer wg.Done()
-			results[idx] = r.runOne(ctx, hook, envVars, payload)
+			results[idx] = r.runOne(ctx, hook, envVars, payload, plainContext)
 		}(i, h)
 	}
 	wg.Wait()
 
-	agg := aggregate(results, toolInputJSON)
-	agg.Hooks = make([]HookInfo, len(deduped))
-	for i, h := range deduped {
-		agg.Hooks[i] = HookInfo{
+	agg := aggregate(results, ev.ToolInput)
+	agg.Hooks = make([]HookInfo, 0, len(sync_)+len(async))
+	for i, h := range sync_ {
+		agg.Hooks = append(agg.Hooks, HookInfo{
 			Name:         h.DisplayName(),
 			Matcher:      h.Matcher,
 			Decision:     results[i].Decision.String(),
 			Halt:         results[i].Halt,
 			Reason:       results[i].Reason,
 			InputRewrite: results[i].UpdatedInput != "",
-		}
+		})
 	}
+	for _, h := range async {
+		agg.Hooks = append(agg.Hooks, HookInfo{Name: h.DisplayName(), Matcher: h.Matcher, Decision: DecisionNone.String()})
+	}
+	agg.HookCount = len(agg.Hooks)
 	slog.Info(
 		"Hook completed",
-		"event", eventName,
-		"tool", toolName,
-		"hooks", len(deduped),
+		"event", ev.Name,
+		"subject", ev.MatchKey,
+		"hooks", agg.HookCount,
 		"decision", agg.Decision.String(),
 	)
 	return agg, nil
 }
 
-// matchingHooks returns hooks whose matcher matches the tool name (or has
-// no matcher, which matches everything).
-func (r *Runner) matchingHooks(toolName string) []config.HookConfig {
+// plainTextIsContext reports whether non-JSON stdout from a hook on this
+// event is fed to the model as context, which is how Claude Code treats
+// UserPromptSubmit and SessionStart output.
+func plainTextIsContext(event string) bool {
+	return event == EventUserPromptSubmit || event == EventSessionStart
+}
+
+// matchingHooks returns the event's hooks whose matcher matches subject (or
+// has no matcher, which matches everything).
+func (r *Runner) matchingHooks(event, subject string) []config.HookConfig {
 	var matched []config.HookConfig
-	for _, h := range r.hooks {
-		if h.matcher == nil || h.matcher.MatchString(toolName) {
+	for _, h := range r.byEvent[event] {
+		if h.matcher == nil || h.matcher.MatchString(subject) {
 			matched = append(matched, h.cfg)
 		}
 	}
@@ -169,7 +240,7 @@ func (r *Runner) matchingHooks(toolName string) []config.HookConfig {
 //     outer frame reads them;
 //   - on the abandon path, the goroutine may still be writing and the
 //     outer frame must not touch them again.
-func (r *Runner) runOne(parentCtx context.Context, hook config.HookConfig, envVars []string, payload []byte) HookResult {
+func (r *Runner) runOne(parentCtx context.Context, hook config.HookConfig, envVars []string, payload []byte, plainContext bool) HookResult {
 	timeout := hook.TimeoutDuration()
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
@@ -221,7 +292,8 @@ func (r *Runner) runOne(parentCtx context.Context, hook config.HookConfig, envVa
 		exitCode := shell.ExitCode(err)
 		switch exitCode {
 		case 2:
-			// Exit code 2 = block this tool call. Stderr is the reason.
+			// Exit code 2 = block. Stderr is the reason, and the caller
+			// decides what blocking means for its event.
 			reason := strings.TrimSpace(stderr.String())
 			if reason == "" {
 				reason = "blocked by hook"
@@ -254,8 +326,8 @@ func (r *Runner) runOne(parentCtx context.Context, hook config.HookConfig, envVa
 		}
 	}
 
-	// Exit code 0 — parse stdout JSON.
-	result := parseStdout(stdout.String())
+	// Exit code 0 — parse stdout.
+	result := parseStdoutFor(stdout.String(), plainContext)
 	slog.Debug(
 		"Hook executed",
 		"command", hook.Command,

@@ -511,7 +511,19 @@ tool/prompt/resource list-changed notifications.
 
 ### Hooks
 
-Crush has preliminary support for hooks. For details, see
+Hooks are shell commands that run on agent lifecycle events: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PreCompact`,
+`SubagentStop`, `Stop` and `SessionEnd`. They follow the Claude Code hook
+contract, so a hook written for one runs under the other, and a `hooks` block
+copied from `.claude/settings.json` works as is.
+
+```bash
+crush hook add PreToolUse --matcher "^bash$" --command ./hooks/no-force-push.sh
+crush hook add Stop --command ./hooks/tests-must-pass.sh
+crush hook list
+```
+
+For the events, the stdin payload and the output contract, see
 [the hook guide](./docs/hooks/).
 
 ### Sharing a workspace across clients

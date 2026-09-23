@@ -1414,12 +1414,46 @@ func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Termina
 // form. Matching is case-insensitive and accepts snake_case variants
 // (e.g. "pre_tool_use" → "PreToolUse").
 func normalizeHookEvent(name string) string {
-	switch strings.ToLower(strings.ReplaceAll(name, "_", "")) {
-	case "pretooluse":
-		return "PreToolUse"
-	default:
-		return name
+	key := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "_", ""), "-", ""))
+	for _, ev := range HookEvents {
+		if strings.ToLower(ev) == key {
+			return ev
+		}
 	}
+	return name
+}
+
+// flattenHookGroups expands Claude Code style entries (a matcher with a
+// "hooks" list) into flat entries, each inheriting the group's matcher and
+// name when it has none of its own. Flat entries pass through unchanged.
+func flattenHookGroups(hooks []HookConfig) []HookConfig {
+	out := make([]HookConfig, 0, len(hooks))
+	for _, h := range hooks {
+		if len(h.Hooks) == 0 {
+			out = append(out, h)
+			continue
+		}
+		for _, child := range h.Hooks {
+			if child.Matcher == "" {
+				child.Matcher = h.Matcher
+			}
+			if child.Name == "" {
+				child.Name = h.Name
+			}
+			if child.Timeout == 0 {
+				child.Timeout = h.Timeout
+			}
+			child.Hooks = nil
+			out = append(out, child)
+		}
+		if h.Command != "" {
+			// A group that also names a command is both: keep the command as
+			// its own entry rather than silently dropping it.
+			h.Hooks = nil
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // ValidateHooks normalizes event names and checks that every configured
@@ -1438,7 +1472,15 @@ func (c *Config) ValidateHooks() error {
 	}
 
 	for event, eventHooks := range c.Hooks {
+		eventHooks = flattenHookGroups(eventHooks)
+		c.Hooks[event] = eventHooks
+		if !slices.Contains(HookEvents, event) {
+			return fmt.Errorf("hook %s: unknown event (known: %s)", event, strings.Join(HookEvents, ", "))
+		}
 		for i, h := range eventHooks {
+			if h.Type != "" && h.Type != "command" {
+				return fmt.Errorf("hook %s[%d]: type %q is not supported; only command hooks run in Crush", event, i, h.Type)
+			}
 			if h.Command == "" {
 				return fmt.Errorf("hook %s[%d]: command is required", event, i)
 			}

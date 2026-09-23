@@ -17,8 +17,10 @@ forward.
 - Hooks are Claude Code-compatible
 - Crush ships with a builtin `crush-hook` skill write, edit, and configure
   hooks; just tell Crush how to configure Crush
-- Crush currently supports just one hook, `PreToolUse`, with plans to support
-  the full gamut; please let us know which hooks you'd like to see next
+- Crush fires nine events across the agent lifecycle, the same set as Claude
+  Code: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+  `Notification`, `PreCompact`, `SubagentStop`, `Stop` and `SessionEnd`
+- `crush hook add <event> --command ...` writes a hook to your config for you
 - Hooks run in parallel for speed, but their results compose in config order
   for determinism
 
@@ -174,31 +176,76 @@ and project-level, with project level hooks taking precedence.
 Remember, hooks will run in parallel but resolve in config order. Last hook
 wins when rewriting input, but first deny wins when blocking.
 
+A hook with `"async": true` is started and forgotten: the agent never waits
+for it and its output is ignored. Use it for logging and notifications, never
+for policy.
+
+The Claude Code shape is accepted as well, so a `hooks` block copied from
+`.claude/settings.json` works unchanged. Each entry pairs a matcher with a list
+of commands, and Crush flattens it at load time:
+
+```jsonc
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "bash",
+        "hooks": [
+          { "type": "command", "command": "./hooks/audit.sh" },
+          { "type": "command", "command": "./hooks/no-force-push.sh", "timeout": 5 },
+        ],
+      },
+    ],
+  },
+}
+```
+
+Only `command` hooks run in Crush; a `prompt` or `agent` type is refused at
+load time with a message saying so.
+
+From the command line, `crush hook add`, `crush hook remove` and `crush hook
+list` manage the same config without opening the file:
+
+```bash
+crush hook add PreToolUse --matcher "^bash$" --command ./hooks/no-force-push.sh --name no-force-push
+crush hook add Stop --command ./hooks/tests-must-pass.sh
+crush hook list
+```
+
 ## Events
 
-Here are the events you can hook into (spoiler: there's currently just one):
-
-### PreToolUse
-
-This hook fires before every tool call. Use it to block dangerous commands,
-enforce policies, rewrite tool input, inject context the model should see, log
-stuff, and so on.
-
-**Matched against**: the tool name (e.g. `bash`, `edit`, `write`,
-`mcp_github_create_pull_request`).
+Every event delivers the same envelope on stdin (`event`, `hook_event_name`,
+`session_id`, `cwd`) plus the fields listed below, and reads the same output
+contract described under [Output](#output). What a block means differs per
+event, because each fires at a different point.
 
 > [!NOTE]
 > Event names are case insensitive and snake-caseable, so `PreToolUse`,
 > `pretooluse`, `PRETOOLUSE`, `pre_tool_use`, and `PRE_TOOL_USE` all work.
 
-**Scope**: `PreToolUse` only fires on the **top-level agent's** tool calls.
-Sub-agents (the `agent` task tool, `agentic_fetch`, etc.) run without hook
-interception so a single delegated turn doesn't trigger your hook N times. The
-outer sub-agent tool call itself _is_ hooked, so policy like "never let the
-agent spawn sub-agents" still works.
+| Event              | Fires                                             | Matcher tested against                  | Extra stdin fields                          | Exit 2 / `decision: block`                                                   |
+| ------------------ | ------------------------------------------------- | --------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `SessionStart`     | First prompt of a session in this process         | `source`: `startup` or `resume`         | `source`                                    | Ignored. Plain stdout or `additionalContext` is added to the first prompt.   |
+| `UserPromptSubmit` | Before the model sees a prompt                    | nothing (always runs)                   | `prompt`                                    | The prompt is refused and the reason shown. Context is added to the prompt.  |
+| `PreToolUse`       | Before a tool runs                                | tool name                               | `tool_name`, `tool_input`                   | The call is blocked; the model sees the reason. `allow` skips the prompt.    |
+| `PostToolUse`      | After a tool ran                                  | tool name                               | `tool_name`, `tool_input`, `tool_response`  | The call already happened; the reason is appended as feedback to the model.  |
+| `Notification`     | A permission prompt, a finished turn, or an error | `notification_type`                     | `notification_type`, `message`             | Ignored. Fire and forget.                                                    |
+| `PreCompact`       | Before the transcript is summarized               | `trigger`: `manual` or `auto`           | `trigger`, `custom_instructions`            | Ignored. Only a halt (exit 49) aborts the compaction.                        |
+| `SubagentStop`     | A sub-agent finished its work                     | nothing                                 | `stop_hook_active`, `last_response`         | The sub-agent keeps working, with the reason as its next prompt.             |
+| `Stop`             | The main agent finished its turn                  | nothing                                 | `stop_hook_active`, `last_response`         | The agent keeps working, with the reason as its next (hidden) prompt.        |
+| `SessionEnd`       | Crush exits                                       | `reason`                                | `reason`                                    | Ignored. Bounded to five seconds.                                            |
+
+`stop_hook_active` is `true` when the turn is already a continuation forced
+by a `Stop` or `SubagentStop` hook. Check it to avoid looping forever; Crush
+also caps continuations at five per turn.
+
+`PreToolUse` and `PostToolUse` fire on the **top-level agent's** tool calls
+only. Sub-agents run without tool hooks so a single delegated turn doesn't
+trigger your hook N times; the outer sub-agent tool call itself _is_ hooked,
+and `SubagentStop` fires when the sub-agent finishes.
 
 Hooks are keyed by event name. Only `command` is required, and you can omit
-`matcher` to match all tools.
+`matcher` to match everything.
 
 ## Building Hooks
 

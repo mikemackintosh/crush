@@ -1,5 +1,7 @@
 // Package hooks runs user-defined shell commands that fire on hook events
-// (e.g. PreToolUse), returning decisions that control agent behavior.
+// across the agent lifecycle, returning decisions that control agent
+// behavior. The events, the stdin payload and the stdout contract follow
+// Claude Code's hooks, so a hook written for one runs under the other.
 package hooks
 
 import (
@@ -7,13 +9,39 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/tidwall/sjson"
 )
 
-// Hook event name constants.
+// Hook event name constants. See config.HookEvents for the full list.
 const (
-	EventPreToolUse = "PreToolUse"
+	EventPreToolUse       = config.HookEventPreToolUse
+	EventPostToolUse      = config.HookEventPostToolUse
+	EventUserPromptSubmit = config.HookEventUserPromptSubmit
+	EventStop             = config.HookEventStop
+	EventSubagentStop     = config.HookEventSubagentStop
+	EventSessionStart     = config.HookEventSessionStart
+	EventSessionEnd       = config.HookEventSessionEnd
+	EventPreCompact       = config.HookEventPreCompact
+	EventNotification     = config.HookEventNotification
 )
+
+// Event is one occurrence of a hook event: what fired, for which session,
+// and the fields the hook receives on stdin. MatchKey is what a hook's
+// matcher regex is tested against.
+type Event struct {
+	Name      string
+	SessionID string
+	// MatchKey is the matcher's subject: the tool name for tool events,
+	// otherwise the source, reason, trigger or notification type.
+	MatchKey string
+	// ToolName and ToolInput are set for PreToolUse and PostToolUse.
+	ToolName  string
+	ToolInput string // JSON object
+	// Fields are event-specific stdin fields (tool_response, prompt,
+	// stop_hook_active, trigger, source, reason, message, ...).
+	Fields map[string]any
+}
 
 // HaltExitCode is the exit code that halts the whole turn. 2 blocks the
 // current tool call; 49 sits in the no-man's-land between the
@@ -72,17 +100,26 @@ type HookResult struct {
 	Reason       string // Deny or halt reason (same field, different audience).
 	Context      string
 	UpdatedInput string // Shallow-merge patch against tool_input (opaque JSON).
+	// SystemMessage is shown to the user, not the model (Claude Code's
+	// systemMessage).
+	SystemMessage string
 }
 
 // AggregateResult holds the combined outcome of all hooks for an event.
 type AggregateResult struct {
-	Decision     Decision
-	Halt         bool       // Any hook requested halt.
-	HookCount    int        // Number of hooks that ran.
-	Hooks        []HookInfo // Info about each hook that ran (config order).
-	Reason       string     // Concatenated deny/halt reasons (newline-separated).
-	Context      string     // Concatenated context from all hooks.
-	UpdatedInput string     // Merged tool_input JSON (empty if no patches).
+	Decision      Decision
+	Halt          bool       // Any hook requested halt.
+	HookCount     int        // Number of hooks that ran.
+	Hooks         []HookInfo // Info about each hook that ran (config order).
+	Reason        string     // Concatenated deny/halt reasons (newline-separated).
+	Context       string     // Concatenated context from all hooks.
+	UpdatedInput  string     // Merged tool_input JSON (empty if no patches).
+	SystemMessage string     // Concatenated messages for the user.
+}
+
+// Blocked reports whether the hooks refused the action, by deny or halt.
+func (a AggregateResult) Blocked() bool {
+	return a.Decision == DecisionDeny || a.Halt
 }
 
 // aggregate merges multiple HookResults into a single AggregateResult.
@@ -97,6 +134,7 @@ func aggregate(results []HookResult, origToolInput string) AggregateResult {
 		halt     bool
 		reasons  []string
 		contexts []string
+		systems  []string
 		merged   = origToolInput
 		anyPatch = false
 	)
@@ -124,6 +162,9 @@ func aggregate(results []HookResult, origToolInput string) AggregateResult {
 		}
 		if r.Context != "" {
 			contexts = append(contexts, r.Context)
+		}
+		if r.SystemMessage != "" {
+			systems = append(systems, r.SystemMessage)
 		}
 		if r.UpdatedInput != "" {
 			next, err := shallowMerge(merged, r.UpdatedInput)
@@ -153,6 +194,9 @@ func aggregate(results []HookResult, origToolInput string) AggregateResult {
 	}
 	if len(contexts) > 0 {
 		agg.Context = strings.Join(contexts, "\n")
+	}
+	if len(systems) > 0 {
+		agg.SystemMessage = strings.Join(systems, "\n")
 	}
 	return agg
 }
@@ -191,3 +235,24 @@ func shallowMerge(base, patch string) (string, error) {
 type errNotObject string
 
 func (e errNotObject) Error() string { return string(e) + " is not a JSON object" }
+
+// BlockedError is returned to a caller when hooks refused an action that
+// has no tool result to carry the refusal: a blocked prompt, a halted
+// compaction. Reason is what the hook wrote to stderr or to "reason".
+type BlockedError struct {
+	Event  string
+	Reason string
+}
+
+func (e *BlockedError) Error() string {
+	if e.Reason == "" {
+		return e.Event + " hook blocked the action"
+	}
+	return e.Event + " hook: " + e.Reason
+}
+
+// MaxStopContinuations bounds how many times a Stop or SubagentStop hook
+// may send the agent back to work in one turn. Hooks see stop_hook_active
+// true on every continuation and are expected to let it stop; the cap is
+// for the ones that do not.
+const MaxStopContinuations = 5

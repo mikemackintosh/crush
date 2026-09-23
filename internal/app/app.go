@@ -824,6 +824,9 @@ func (app *App) Shutdown() {
 	// before closing the DB so agents can finish writing their state.
 	if app.AgentCoordinator != nil {
 		app.AgentCoordinator.CancelAll()
+		if ender, ok := app.AgentCoordinator.(agent.SessionEnder); ok {
+			ender.SessionEnd(context.Background(), "exit")
+		}
 	}
 
 	// Shared shutdown context for all timeout-bounded cleanup.

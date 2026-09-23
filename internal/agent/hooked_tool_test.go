@@ -145,3 +145,24 @@ func TestWrapToolsWithHooks(t *testing.T) {
 		require.Equal(t, inputs, wrapToolsWithHooks(inputs, nil, true))
 	})
 }
+
+// PostToolUse fires after the tool ran with the response in the payload. A
+// block cannot undo the call; its reason and any context become feedback
+// appended to the response, and a halt ends the turn.
+func TestHookedTool_PostToolUseFeedback(t *testing.T) {
+	t.Parallel()
+	runner := hooks.NewEventRunner(map[string][]config.HookConfig{
+		hooks.EventPostToolUse: {{Matcher: "^bash$", Command: `grep -q '"is_error":false' && echo '{"decision":"block","reason":"run the tests too","hookSpecificOutput":{"additionalContext":"CI is red"}}'`}},
+	}, t.TempDir(), t.TempDir())
+	inner := &fakeTool{name: "bash", resp: fantasy.NewTextResponse("done")}
+	ht := newHookedTool(inner, runner)
+
+	resp, err := ht.Run(context.Background(), fantasy.ToolCall{ID: "c1", Name: "bash", Input: `{"command":"make"}`})
+	require.NoError(t, err)
+	require.True(t, inner.called, "the tool still runs; PostToolUse cannot prevent it")
+	require.Contains(t, resp.Content, "done")
+	require.Contains(t, resp.Content, "Hook feedback: run the tests too")
+	require.Contains(t, resp.Content, "CI is red")
+	require.False(t, resp.StopTurn)
+	require.Contains(t, resp.Metadata, `"post_hook"`)
+}

@@ -151,7 +151,7 @@ lsp add typescript --command typescript-language-server --args --stdio
 ### hooks
 
 ```bash
-hook add <event> --command CMD [--name NAME] [--matcher REGEX] [--timeout N]
+hook add <event> --command CMD [--name NAME] [--matcher REGEX] [--timeout N] [--async BOOL]
 hook remove <event> [--name NAME]    # alias: rm; without --name clears the event
 ```
 
@@ -215,9 +215,12 @@ option ui exit-banner compact
 
 ## Hooks runtime
 
-Hooks are user-defined shell commands that fire on agent events. Currently only
-`PreToolUse` is supported, which runs before a tool executes. This behavior is
-the same however the hook is defined (`hook add` or JSON).
+Hooks are user-defined shell commands that fire on agent events: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `PreCompact`,
+`SubagentStop`, `Stop` and `SessionEnd`, with the Claude Code stdin and stdout
+contract. `PreToolUse` runs before a tool executes and is the one that can
+block or rewrite a call. This behavior is the same however the hook is defined
+(`hook add`, `crush hook add`, or JSON).
 
 ### How hooks work
 

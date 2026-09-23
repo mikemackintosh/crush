@@ -803,15 +803,57 @@ func (t ToolGlob) GetTimeout() time.Duration {
 // event (e.g. PreToolUse). This is a pure-data struct: matcher compilation
 // is owned by hooks.Runner so a JSON round-trip, merge, or reload can't
 // silently drop compiled state.
+// Hook event names. Keys of Config.Hooks are normalized to these.
+const (
+	HookEventPreToolUse       = "PreToolUse"
+	HookEventPostToolUse      = "PostToolUse"
+	HookEventUserPromptSubmit = "UserPromptSubmit"
+	HookEventStop             = "Stop"
+	HookEventSubagentStop     = "SubagentStop"
+	HookEventSessionStart     = "SessionStart"
+	HookEventSessionEnd       = "SessionEnd"
+	HookEventPreCompact       = "PreCompact"
+	HookEventNotification     = "Notification"
+)
+
+// HookEvents lists every event Crush fires, in lifecycle order.
+var HookEvents = []string{
+	HookEventSessionStart,
+	HookEventUserPromptSubmit,
+	HookEventPreToolUse,
+	HookEventPostToolUse,
+	HookEventNotification,
+	HookEventPreCompact,
+	HookEventSubagentStop,
+	HookEventStop,
+	HookEventSessionEnd,
+}
+
+// HookConfig is one hook on an event. Two shapes are accepted under an
+// event key: the flat Crush form, where the entry itself carries the
+// command, and the Claude Code form, where an entry pairs a matcher with a
+// "hooks" list of commands. ValidateHooks flattens the second into the
+// first so the rest of Crush only ever sees flat entries.
 type HookConfig struct {
 	// Friendly display name shown in the TUI. Falls back to Command when empty.
 	Name string `json:"name,omitempty" jsonschema:"description=Friendly display name shown in the TUI for this hook"`
-	// Regex pattern tested against the tool name. Empty means match all.
-	Matcher string `json:"matcher,omitempty" jsonschema:"description=Regex pattern tested against the tool name. Empty means match all tools."`
+	// Regex tested against the event's subject: the tool name for
+	// PreToolUse and PostToolUse, the source for SessionStart, the reason
+	// for SessionEnd, the trigger for PreCompact, and the notification
+	// type for Notification. Empty means match all.
+	Matcher string `json:"matcher,omitempty" jsonschema:"description=Regex tested against the event's subject (tool name for tool events; source, reason, trigger or notification type for the others). Empty means match all."`
+	// Hook type. Only "command" is supported; it is the default.
+	Type string `json:"type,omitempty" jsonschema:"description=Hook type. Only command is supported,default=command"`
 	// Shell command to execute.
-	Command string `json:"command" jsonschema:"required,description=Shell command to execute when the hook fires"`
+	Command string `json:"command,omitempty" jsonschema:"description=Shell command to execute when the hook fires"`
 	// Timeout in seconds. Default 30.
 	Timeout int `json:"timeout,omitempty" jsonschema:"description=Timeout in seconds for the hook command,default=30"`
+	// Async runs the hook in the background. Its output is ignored and the
+	// agent never waits for it: for logging and notifications, not policy.
+	Async bool `json:"async,omitempty" jsonschema:"description=Run in the background without waiting; output is ignored,default=false"`
+	// Hooks is the Claude Code group form: a matcher shared by several
+	// commands. Flattened at load time.
+	Hooks []HookConfig `json:"hooks,omitempty" jsonschema:"description=Claude Code form: commands sharing this entry's matcher"`
 }
 
 // DisplayName returns the hook name for display purposes. It returns Name

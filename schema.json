@@ -119,7 +119,12 @@
         },
         "matcher": {
           "type": "string",
-          "description": "Regex pattern tested against the tool name. Empty means match all tools."
+          "description": "Regex tested against the event's subject (tool name for tool events; source"
+        },
+        "type": {
+          "type": "string",
+          "description": "Hook type. Only command is supported",
+          "default": "command"
         },
         "command": {
           "type": "string",
@@ -129,13 +134,22 @@
           "type": "integer",
           "description": "Timeout in seconds for the hook command",
           "default": 30
+        },
+        "async": {
+          "type": "boolean",
+          "description": "Run in the background without waiting; output is ignored",
+          "default": false
+        },
+        "hooks": {
+          "items": {
+            "$ref": "#/$defs/HookConfig"
+          },
+          "type": "array",
+          "description": "Claude Code form: commands sharing this entry's matcher"
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "command"
-      ]
+      "type": "object"
     },
     "LSPConfig": {
       "properties": {
@@ -437,6 +451,9 @@
         },
         "auth_style": {
           "type": "integer"
+        },
+        "resource": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

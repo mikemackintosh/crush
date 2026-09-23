@@ -43,6 +43,7 @@ var hookAddFlags = []flagSpec{
 	{name: "--matcher", jsonKey: "matcher", kind: flagString, op: opSet},
 	{name: "--timeout", jsonKey: "timeout", kind: flagInt, op: opSet},
 	{name: "--name", jsonKey: "name", kind: flagString, op: opSet},
+	{name: "--async", jsonKey: "async", kind: flagBool, op: opSet},
 }
 
 func hookAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
@@ -108,4 +109,19 @@ func hookRemove(b *ConfigBuilder, args []string, stderr io.Writer) error {
 
 	slog.Info("Hook removed in shell config", "event", event, "name", name)
 	return nil
+}
+
+// HookFromArgs parses the flags of `hook add <event>` (everything after the
+// event) into the hook's config map, using exactly the flag surface the
+// crushrc builtin accepts, so `crush hook add` cannot drift from it.
+func HookFromArgs(flags []string) (map[string]any, error) {
+	h := map[string]any{}
+	args := append([]string{"hook", "add", "<event>"}, flags...)
+	if err := applyFlags(hookAddFlags, args, 3, h, "hook add", io.Discard); err != nil {
+		return nil, err
+	}
+	if _, ok := h["command"]; !ok {
+		return nil, fmt.Errorf("hook add: --command is required")
+	}
+	return h, nil
 }

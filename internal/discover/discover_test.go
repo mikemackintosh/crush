@@ -219,3 +219,39 @@ func TestStripV1Suffix(t *testing.T) {
 		require.Equal(t, tt.want, got, "stripV1Suffix(%q)", tt.input)
 	}
 }
+
+// A gateway in front of SGLang or vLLM publishes max_model_len and labels
+// non-chat models with the endpoint they serve. Discovery reads the
+// metadata, sizes the model from it, fills what a user-listed model left
+// blank, and keeps speech models out of the picker.
+func TestDiscoverModels_GatewayMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"RadixArk/Qwen3.8-27B-NVFP4","object":"model","owned_by":"sglang","max_model_len":262144},
+			{"id":"Qwen/Qwen3-TTS","object":"model","owned_by":"vllm","endpoint":"/v1/audio/speech","max_model_len":4096},
+			{"id":"router/small","object":"model","name":"Small","context_length":32000,"max_output_tokens":4000}
+		]}`))
+	}))
+	defer server.Close()
+
+	cfg := Config{
+		ID:      "llmgw",
+		BaseURL: server.URL,
+		ExistingModels: []catwalk.Model{
+			{ID: "RadixArk/Qwen3.8-27B-NVFP4", Name: "Qwen 3.8 27B"},
+		},
+	}
+	models, err := DiscoverModels(context.Background(), cfg, &mockResolver{})
+	require.NoError(t, err)
+	require.Len(t, models, 2, "the speech model is not a chat model")
+
+	require.Equal(t, "Qwen 3.8 27B", models[0].Name, "user fields win")
+	require.Equal(t, int64(262144), models[0].ContextWindow, "context window filled from the gateway")
+	require.Equal(t, int64(32768), models[0].DefaultMaxTokens, "a quarter of the window, capped")
+
+	require.Equal(t, "router/small", models[1].ID)
+	require.Equal(t, "Small", models[1].Name)
+	require.Equal(t, int64(32000), models[1].ContextWindow)
+	require.Equal(t, int64(4000), models[1].DefaultMaxTokens, "published output ceiling wins over the heuristic")
+}

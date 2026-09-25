@@ -1,12 +1,14 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/util"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -102,6 +104,12 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 		helpStyle := s.com.Styles.Status.Help
 		helpWidth := area.Dx() - helpStyle.GetPaddingLeft() - helpStyle.GetPaddingRight()
 		badge := s.modeBadge()
+		if auth := s.authBadge(); auth != "" {
+			if badge != "" {
+				badge += " "
+			}
+			badge += auth
+		}
 		if badge != "" {
 			// Shrink the hints so the badge does not push them past the
 			// status area.
@@ -169,6 +177,47 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// Draw the info message over the help view
 	uv.NewStyledString(strings.Repeat(" ", indInset)+ind+info).Draw(scr, area)
+}
+
+// authBadge shows the sign-in state of the current model's provider when
+// it authenticates with OAuth: the provider, and how long the access token
+// has left, or a warning once it has expired and the background refresh
+// has not yet caught up. API-key providers show nothing.
+func (s *Status) authBadge() string {
+	cfg := s.com.Config()
+	if cfg == nil {
+		return ""
+	}
+	agentCfg, ok := cfg.Agents[config.AgentCoder]
+	if !ok {
+		return ""
+	}
+	pc, ok := cfg.Providers.Get(cfg.Models[agentCfg.Model].Provider)
+	if !ok || pc.OAuthToken == nil {
+		return ""
+	}
+	name := pc.Name
+	if name == "" {
+		name = pc.ID
+	}
+	left := time.Until(time.Unix(pc.OAuthToken.ExpiresAt, 0))
+	if left <= 0 {
+		return s.com.Styles.Status.WarnMessage.Render(fmt.Sprintf("%s token expired", name))
+	}
+	return s.com.Styles.Status.Help.Render(fmt.Sprintf("signed in · %s · %s", name, shortDuration(left)))
+}
+
+// shortDuration renders a remaining lifetime the way a human reads it off a
+// status bar: minutes under an hour, hours under a day, days above.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
 }
 
 // clearInfoMsgCmd returns a command that clears the info message after the

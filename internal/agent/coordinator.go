@@ -261,6 +261,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 	c.mainAgent = agent
 	c.mainAgentName = config.AgentCoder
 	c.watchPermissionPrompts(ctx)
+	c.startTokenRefresher(ctx)
 	return c, nil
 }
 
@@ -864,6 +865,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	var hookRunner *hooks.Runner
 	if all := c.cfg.Config().Hooks; len(all) > 0 {
 		hookRunner = hooks.NewEventRunner(all, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+		hookRunner.SetTranscriptFunc(c.writeTranscript)
 	}
 	if !isSubAgent {
 		c.hookRunner.Store(hookRunner)

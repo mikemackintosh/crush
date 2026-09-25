@@ -40,6 +40,20 @@ type Runner struct {
 	byEvent    map[string][]compiledHook
 	cwd        string
 	projectDir string
+	// transcript, when set, renders the session to a file before an event
+	// fires and its path travels as transcript_path, as in Claude Code.
+	transcript TranscriptFunc
+}
+
+// TranscriptFunc writes the session's transcript and returns its path, or
+// an empty string when there is nothing to hand the hook.
+type TranscriptFunc func(ctx context.Context, sessionID string) string
+
+// SetTranscriptFunc installs the transcript writer.
+func (r *Runner) SetTranscriptFunc(fn TranscriptFunc) {
+	if r != nil {
+		r.transcript = fn
+	}
 }
 
 // NewRunner creates a Runner whose hooks all fire on PreToolUse. It is the
@@ -152,7 +166,18 @@ func (r *Runner) RunEvent(ctx context.Context, ev Event) (AggregateResult, error
 		}
 	}
 
+	if r.transcript != nil && ev.SessionID != "" {
+		if path := r.transcript(ctx, ev.SessionID); path != "" {
+			if ev.Fields == nil {
+				ev.Fields = map[string]any{}
+			}
+			ev.Fields["transcript_path"] = path
+		}
+	}
 	envVars := BuildEnv(ev.Name, ev.ToolName, ev.SessionID, r.cwd, r.projectDir, ev.ToolInput)
+	if path, ok := ev.Fields["transcript_path"].(string); ok && path != "" {
+		envVars = append(envVars, "CRUSH_TRANSCRIPT_PATH="+path)
+	}
 	payload := BuildEventPayload(ev, r.cwd)
 	plainContext := plainTextIsContext(ev.Name)
 

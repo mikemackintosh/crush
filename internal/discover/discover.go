@@ -91,12 +91,79 @@ type Resolver interface {
 }
 
 type modelsResponse struct {
-	Data []struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
-	} `json:"data"`
+	Data []modelEntry `json:"data"`
+}
+
+// modelEntry is one /v1/models entry. The OpenAI shape carries only id,
+// object, created and owned_by; serving engines and gateways add the
+// metadata a client needs to size a request, under names that differ by
+// engine. Every spelling seen in the wild is read here so a gateway that
+// fronts SGLang, vLLM, llama.cpp or a router yields usable models
+// without an engine-specific enricher.
+type modelEntry struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+	// Endpoint names the API a non-chat model serves (vLLM-Omni: "/v1/audio/speech").
+	Endpoint string `json:"endpoint"`
+	// Context window, by the names vLLM/SGLang, LiteLLM, Ollama-style
+	// proxies and OpenRouter use.
+	MaxModelLen   int64 `json:"max_model_len"`
+	ContextLength int64 `json:"context_length"`
+	ContextWindow int64 `json:"context_window"`
+	MaxInputToken int64 `json:"max_input_tokens"`
+	// Output ceiling, by the names LiteLLM and OpenRouter use.
+	MaxOutputTokens int64 `json:"max_output_tokens"`
+	MaxTokens       int64 `json:"max_tokens"`
+	// Name is a display name some gateways attach.
+	Name string `json:"name"`
+}
+
+// contextWindow returns the entry's context window under whichever name
+// it was published, or 0.
+func (e modelEntry) contextWindow() int64 {
+	for _, v := range []int64{e.MaxModelLen, e.ContextLength, e.ContextWindow, e.MaxInputToken} {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// maxOutput returns the entry's output ceiling, or 0.
+func (e modelEntry) maxOutput() int64 {
+	for _, v := range []int64{e.MaxOutputTokens, e.MaxTokens} {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// servesChat reports whether the entry is a chat model. Gateways that also
+// host speech or embedding models label them with the endpoint they
+// answer; those must not appear in a model picker.
+func (e modelEntry) servesChat() bool {
+	switch e.Endpoint {
+	case "", "/v1/chat/completions", "/chat/completions", "/v1/completions", "/v1/messages", "/v1/responses":
+		return true
+	}
+	return false
+}
+
+// defaultMaxTokensFor picks an output ceiling for a discovered model: the
+// published one when there is one, otherwise a quarter of the context
+// window capped at 32k, which keeps a 256k model from defaulting to a 64k
+// answer.
+func defaultMaxTokensFor(e modelEntry) int64 {
+	if v := e.maxOutput(); v > 0 {
+		return v
+	}
+	if cw := e.contextWindow(); cw > 0 {
+		return min(cw/4, 32768)
+	}
+	return 0
 }
 
 // DiscoverModels fetches available models from the provider's /models endpoint.
@@ -120,24 +187,49 @@ func DiscoverModels(ctx context.Context, cfg Config, resolver Resolver) ([]catwa
 		return nil, fmt.Errorf("discover models for provider %s: %w", cfg.ID, err)
 	}
 
-	// Build set of existing model IDs to skip.
+	// Index the published entries so user-specified models can borrow
+	// metadata they left out.
+	published := make(map[string]modelEntry, len(modelsResp.Data))
+	for _, e := range modelsResp.Data {
+		published[e.ID] = e
+	}
+
+	// Start with user-specified models. They win on every field they set;
+	// a zero context window or output ceiling is filled from the gateway,
+	// which is what makes "list the id, let discovery size it" work.
+	result := make([]catwalk.Model, len(cfg.ExistingModels))
+	copy(result, cfg.ExistingModels)
+	for i := range result {
+		e, ok := published[result[i].ID]
+		if !ok {
+			continue
+		}
+		if result[i].ContextWindow == 0 {
+			result[i].ContextWindow = e.contextWindow()
+		}
+		if result[i].DefaultMaxTokens == 0 {
+			result[i].DefaultMaxTokens = defaultMaxTokensFor(e)
+		}
+	}
+
+	// Append discovered chat models not already in the list.
 	existing := make(map[string]struct{}, len(cfg.ExistingModels))
 	for _, m := range cfg.ExistingModels {
 		existing[m.ID] = struct{}{}
 	}
-
-	// Start with user-specified models.
-	result := make([]catwalk.Model, len(cfg.ExistingModels))
-	copy(result, cfg.ExistingModels)
-
-	// Append discovered models not already in the list.
 	for _, e := range modelsResp.Data {
-		if _, ok := existing[e.ID]; ok {
+		if _, ok := existing[e.ID]; ok || !e.servesChat() {
 			continue
 		}
+		name := e.Name
+		if name == "" {
+			name = e.ID
+		}
 		result = append(result, catwalk.Model{
-			ID:   e.ID,
-			Name: e.ID,
+			ID:               e.ID,
+			Name:             name,
+			ContextWindow:    e.contextWindow(),
+			DefaultMaxTokens: defaultMaxTokensFor(e),
 		})
 	}
 

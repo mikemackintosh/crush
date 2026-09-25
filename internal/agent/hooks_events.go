@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/crush/internal/hooks"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/charmbracelet/crush/internal/transcript"
 )
 
 // The lifecycle hook events other than the two tool events live here.
@@ -248,6 +249,22 @@ func (c *coordinator) watchPermissionPrompts(ctx context.Context) {
 				fmt.Sprintf("%s needs permission: %s", req.ToolName, req.Description))
 		}
 	}()
+}
+
+// writeTranscript renders the session to its JSONL transcript under the
+// data directory and returns the path, so hooks get transcript_path the
+// way Claude Code's do. A failure is logged and the hook simply gets no
+// path.
+func (c *coordinator) writeTranscript(ctx context.Context, sessionID string) string {
+	if c.sessions == nil || c.messages == nil {
+		return ""
+	}
+	path, err := transcript.WriteFile(ctx, c.cfg.Config().Options.DataDirectory, c.sessions, c.messages, sessionID)
+	if err != nil {
+		slog.Warn("Failed to write session transcript for hooks", "session", sessionID, "error", err)
+		return ""
+	}
+	return path
 }
 
 // reportHookMessage surfaces a hook's systemMessage to the user through

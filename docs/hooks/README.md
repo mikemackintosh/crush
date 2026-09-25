@@ -215,7 +215,9 @@ crush hook list
 ## Events
 
 Every event delivers the same envelope on stdin (`event`, `hook_event_name`,
-`session_id`, `cwd`) plus the fields listed below, and reads the same output
+`session_id`, `cwd`, and `transcript_path`, a JSON Lines rendering of the
+session written just before the hook runs, also in `CRUSH_TRANSCRIPT_PATH`)
+plus the fields listed below, and reads the same output
 contract described under [Output](#output). What a block means differs per
 event, because each fires at a different point.
 

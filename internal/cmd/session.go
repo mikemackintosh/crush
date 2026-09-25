@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/transcript"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/x/ansi"
@@ -40,6 +41,9 @@ var sessionCmd = &cobra.Command{
 var (
 	sessionListJSON   bool
 	sessionShowJSON   bool
+
+	sessionExportFormat string
+	sessionExportOutput string
 	sessionLastJSON   bool
 	sessionDeleteJSON bool
 	sessionRenameJSON bool
@@ -59,6 +63,23 @@ var sessionShowCmd = &cobra.Command{
 	Long:  "Show session details. Use --json for machine-readable output. ID can be a UUID, full hash, or hash prefix.",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSessionShow,
+}
+
+var sessionExportCmd = &cobra.Command{
+	Use:   "export <id>",
+	Short: "Export a session transcript",
+	Long: `Export a session as a transcript file.
+
+--format jsonl (default) writes one JSON object per line, the same shape hooks
+receive as transcript_path; --format md writes a readable Markdown transcript.
+Without --output the transcript goes to stdout. ID can be a UUID, full hash,
+hash prefix, or "last" for the most recent session.`,
+	Example: `
+crush session export last --format md --output notes.md
+crush session export 3f2a > transcript.jsonl
+  `,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionExport,
 }
 
 var sessionLastCmd = &cobra.Command{
@@ -96,6 +117,9 @@ func init() {
 	sessionCmd.AddCommand(sessionLastCmd)
 	sessionCmd.AddCommand(sessionDeleteCmd)
 	sessionCmd.AddCommand(sessionRenameCmd)
+	sessionExportCmd.Flags().StringVar(&sessionExportFormat, "format", "jsonl", "jsonl or md")
+	sessionExportCmd.Flags().StringVarP(&sessionExportOutput, "output", "o", "", "write to this file instead of stdout")
+	sessionCmd.AddCommand(sessionExportCmd)
 }
 
 type sessionServices struct {
@@ -283,6 +307,60 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 		return outputSessionJSON(cmd.OutOrStdout(), sess, msgPtrs)
 	}
 	return outputSessionHuman(ctx, svc.cfg, sess, msgPtrs)
+}
+
+func runSessionExport(cmd *cobra.Command, args []string) error {
+	event.SetNonInteractive(true)
+
+	format, err := transcript.ParseFormat(sessionExportFormat)
+	if err != nil {
+		return err
+	}
+
+	ctx, svc, cleanup, err := sessionSetup(cmd)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	var sess session.Session
+	if args[0] == "last" {
+		sessions, err := svc.sessions.List(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list sessions: %w", err)
+		}
+		if len(sessions) == 0 {
+			return errors.New("no sessions found")
+		}
+		sess = sessions[0]
+	} else {
+		sess, err = resolveSessionID(ctx, svc.sessions, args[0])
+		if err != nil {
+			return err
+		}
+	}
+
+	msgs, err := svc.messages.List(ctx, sess.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list messages: %w", err)
+	}
+
+	var w io.Writer = cmd.OutOrStdout()
+	if sessionExportOutput != "" {
+		f, err := os.Create(sessionExportOutput)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+	if err := transcript.Write(w, format, sess, msgs); err != nil {
+		return err
+	}
+	if sessionExportOutput != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %d messages to %s\n", len(msgs), sessionExportOutput)
+	}
+	return nil
 }
 
 func runSessionDelete(cmd *cobra.Command, args []string) error {

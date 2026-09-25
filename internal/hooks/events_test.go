@@ -118,3 +118,16 @@ func TestBlockedError(t *testing.T) {
 	require.Equal(t, "UserPromptSubmit hook: no", (&BlockedError{Event: EventUserPromptSubmit, Reason: "no"}).Error())
 	require.True(t, strings.Contains((&BlockedError{Event: EventPreCompact}).Error(), "blocked"))
 }
+
+func TestTranscriptPathReachesHooks(t *testing.T) {
+	t.Parallel()
+	r := NewEventRunner(map[string][]config.HookConfig{
+		EventUserPromptSubmit: {{Command: `echo "path=$CRUSH_TRANSCRIPT_PATH stdin=$(grep -o '"transcript_path":"[^"]*"')"`}},
+	}, t.TempDir(), t.TempDir())
+	r.SetTranscriptFunc(func(_ context.Context, sessionID string) string { return "/tmp/" + sessionID + ".jsonl" })
+
+	res, err := r.RunEvent(context.Background(), Event{Name: EventUserPromptSubmit, SessionID: "abc", Fields: map[string]any{"prompt": "hi"}})
+	require.NoError(t, err)
+	require.Contains(t, res.Context, "path=/tmp/abc.jsonl")
+	require.Contains(t, res.Context, `"transcript_path":"/tmp/abc.jsonl"`)
+}

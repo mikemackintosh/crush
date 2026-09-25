@@ -427,6 +427,14 @@ crush mcp list
 crush mcp remove rocketbox
 ```
 
+Every session can be exported as a transcript, either as JSON Lines, the
+same shape hooks receive as `transcript_path`, or as Markdown:
+
+```bash
+crush session export last --format md --output notes.md
+crush session export 3f2a > transcript.jsonl
+```
+
 Inside a session, type `/mcp` (or `/mcp <name>`) to open the MCP servers
 dialog: it shows each server's state and tool counts, and from there you can
 reconnect (`enter`), enable or disable (`ctrl+e`), sign in again to an OAuth
@@ -839,6 +847,23 @@ model add my-gateway/gpt-5 --name "GPT-5" --context-window 200000
 Then sign in once with `crush login my-gateway`, or pick one of the provider's
 models in the model picker and complete the device code in your browser.
 `crush logout my-gateway` removes the credential again.
+
+After that the token looks after itself: Crush refreshes it in the background
+before it expires, retries once after a 401, and shows the provider and the
+token's remaining lifetime in the status bar. Type `/login` in a session to
+sign in again on demand, or `/login <provider>` for another provider.
+
+A gateway usually publishes its models. With `discover_models` on, Crush reads
+`/v1/models` after sign-in and takes the context window and output ceiling
+from what the gateway reports (`max_model_len`, `context_length` and friends),
+fills those in for models you listed by ID only, and leaves speech and
+embedding models out of the picker:
+
+```bash
+provider add my-gateway --type openai-compat \
+  --base-url "https://llm.example.com/v1" \
+  --oauth-device true --discover-models true
+```
 
 - `--oauth-issuer URL` names the authorization server directly when the
   gateway does not publish protected resource metadata.

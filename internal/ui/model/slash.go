@@ -1,9 +1,13 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/ui/util"
 )
 
 // parseSlashCommand recognises a one-line prompt of the form "/name [arg]".
@@ -37,6 +41,33 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 		// that server, ready for reconnect, enable/disable or sign-in.
 		m.openMCPServersDialogFiltered(arg)
 		return nil, true
+	case "login":
+		// /login reopens sign-in for the current model's provider, or for
+		// the named one, without waiting for a 401 to force it.
+		providerID := arg
+		if providerID == "" {
+			providerID = m.currentProviderID()
+		}
+		if providerID == "" {
+			return util.ReportError(errors.New("no provider selected; pick a model first or use /login <provider>")), true
+		}
+		if _, ok := m.com.Config().Providers.Get(providerID); !ok {
+			return util.ReportError(fmt.Errorf("unknown provider %q", providerID)), true
+		}
+		return m.handleReAuthenticate(providerID), true
 	}
 	return nil, false
+}
+
+// currentProviderID is the provider behind the coder agent's model.
+func (m *UI) currentProviderID() string {
+	cfg := m.com.Config()
+	if cfg == nil {
+		return ""
+	}
+	agentCfg, ok := cfg.Agents[config.AgentCoder]
+	if !ok {
+		return ""
+	}
+	return cfg.Models[agentCfg.Model].Provider
 }

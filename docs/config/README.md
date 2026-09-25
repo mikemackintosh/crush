@@ -154,7 +154,7 @@ Flags:
       --base-url string             API base URL
       --disable bool                disable without removing
       --flat-rate bool              use flat-rate billing
-      --discover-models bool        auto-discover and merge provider models
+      --discover-models bool        auto-discover and merge provider models (default true)
       --oauth-device bool           sign in with the OAuth 2.0 device flow (RFC 8628)
       --oauth-issuer string         authorization server URL (implies --oauth-device)
       --oauth-scope string          space-separated scopes for the device flow

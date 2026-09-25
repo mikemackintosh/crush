@@ -503,6 +503,10 @@ func (w *AppWorkspace) MCPReconnect(ctx context.Context, name string) error {
 	return mcptools.InitializeSingle(ctx, name, w.store)
 }
 
+func (w *AppWorkspace) ReloadConfig(ctx context.Context) error {
+	return w.store.ReloadFromDisk(ctx)
+}
+
 func (w *AppWorkspace) MCPSetEnabled(ctx context.Context, name string, enabled bool) error {
 	if _, ok := w.store.Config().MCP[name]; !ok {
 		return fmt.Errorf("mcp '%s' not found in configuration", name)

@@ -153,6 +153,9 @@ type (
 		Prompts []commands.MCPPrompt
 	}
 	// mcpStateChangedMsg is sent when there is a change in MCP client states.
+	// modelsRefetchedMsg follows a config reload triggered from the picker.
+	modelsRefetchedMsg struct{}
+
 	mcpStateChangedMsg struct {
 		states map[string]mcp.ClientInfo
 	}
@@ -938,6 +941,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			commands.SetCustomCommands(m.customCommands)
 		}
 
+	case modelsRefetchedMsg:
+		// Config reloaded and discovery re-ran: reopen the picker on the
+		// fresh catalog and say how big it is.
+		if cmd := m.openModelsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Refetched models: %s", describeModelCounts(m.com.Config())))))
 	case mcpStateChangedMsg:
 		m.mcpStates = msg.states
 		// Auto-open the MCP auth dialog if any servers need authentication.
@@ -2438,6 +2448,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 				return util.ReportError(err)()
 			}
 			return util.NewInfoMsg(fmt.Sprintf("MCP server %q reconnected", msg.ServerName))
+		})
+	case dialog.ActionRefetchModels:
+		m.dialog.CloseDialog(dialog.ModelsID)
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.ReloadConfig(context.Background()); err != nil {
+				return util.ReportError(err)()
+			}
+			return modelsRefetchedMsg{}
 		})
 	case dialog.ActionMCPSetEnabled:
 		m.dialog.CloseDialog(dialog.MCPServersID)

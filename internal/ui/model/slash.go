@@ -41,6 +41,9 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 		// that server, ready for reconnect, enable/disable or sign-in.
 		m.openMCPServersDialogFiltered(arg)
 		return nil, true
+	case "model", "models":
+		// /model opens the picker; ctrl+r inside it refetches the catalog.
+		return m.openModelsDialog(), true
 	case "login":
 		// /login reopens sign-in for the current model's provider, or for
 		// the named one, without waiting for a 401 to force it.
@@ -57,6 +60,23 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 		return m.handleReAuthenticate(providerID), true
 	}
 	return nil, false
+}
+
+// describeModelCounts summarises the catalog for the refetch notice, so the
+// user can see whether a gateway's models actually arrived.
+func describeModelCounts(cfg *config.Config) string {
+	if cfg == nil {
+		return "no config"
+	}
+	providers, models := 0, 0
+	for _, pc := range cfg.Providers.Seq2() {
+		if pc.Disable {
+			continue
+		}
+		providers++
+		models += len(pc.Models)
+	}
+	return fmt.Sprintf("%d models across %d providers", models, providers)
 }
 
 // currentProviderID is the provider behind the coder agent's model.

@@ -462,6 +462,13 @@ func (c *controllerV1) endpoints() []apigen.Endpoint {
 			Fails(400, 404, 500).
 			Handle(c.handlePostWorkspaceConfigRefreshOAuth),
 
+		apigen.Post("/v1/workspaces/{id}/config/reload").
+			Summary("Reload config from disk and refetch models").
+			Tags("config").
+			PathParam("id", "Workspace ID").
+			Fails(404, 500).
+			Handle(c.handlePostWorkspaceConfigReload),
+
 		apigen.Get("/v1/workspaces/{id}/project/needs-init").
 			Summary("Check if project needs initialization").
 			Tags("project").

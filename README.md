@@ -853,17 +853,13 @@ before it expires, retries once after a 401, and shows the provider and the
 token's remaining lifetime in the status bar. Type `/login` in a session to
 sign in again on demand, or `/login <provider>` for another provider.
 
-A gateway usually publishes its models. With `discover_models` on, Crush reads
-`/v1/models` after sign-in and takes the context window and output ceiling
-from what the gateway reports (`max_model_len`, `context_length` and friends),
-fills those in for models you listed by ID only, and leaves speech and
-embedding models out of the picker:
-
-```bash
-provider add my-gateway --type openai-compat \
-  --base-url "https://llm.example.com/v1" \
-  --oauth-device true --discover-models true
-```
+A gateway usually publishes its models. Crush reads `/v1/models` on every
+config load, including right after sign-in, and takes the context window and
+output ceiling from what the gateway reports (`max_model_len`,
+`context_length` and friends), fills those in for models you listed by ID
+only, and leaves speech and embedding models out of the picker. Set
+`--discover-models false` to turn that off for a provider. Type `/model` in a
+session to open the picker, and press `ctrl+r` inside it to refetch.
 
 - `--oauth-issuer URL` names the authorization server directly when the
   gateway does not publish protected resource metadata.
@@ -965,9 +961,10 @@ provider add llamacpp \
 
 You can still list models explicitly. User-defined models always take
 precedence over discovered ones, and any fields you set won't be overwritten
-by auto-discovery. Auto discovery will run if the model list is empty for any
-`openai-compat` provider or if you pass `"discover_models": true` it will merge
-the found models with your hand configured ones.
+by auto-discovery. Discovery runs for every `openai-compat` provider unless you
+pass `"discover_models": false`; the found models are merged with your hand
+configured ones, and a hand-configured model with no context window or output
+ceiling gets them from the provider's listing.
 
 ```bash
 # crushrc

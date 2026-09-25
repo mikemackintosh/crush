@@ -2583,3 +2583,18 @@ func TestValidateHooksFlattensClaudeCodeGroups(t *testing.T) {
 	unknown := &Config{Hooks: map[string][]HookConfig{"OnCoffee": {{Command: "x"}}}}
 	require.ErrorContains(t, unknown.ValidateHooks(), "unknown event")
 }
+
+// Discovery is on by default; only an explicit false turns it off. Under
+// test an unset flag keeps the old empty-list rule so fixtures do not dial
+// unreachable hosts.
+func TestDiscoveryWanted(t *testing.T) {
+	t.Parallel()
+	on, off := true, false
+	listed := []catwalk.Model{{ID: "m"}}
+	require.True(t, discoveryWanted(ProviderConfig{}, false))
+	require.True(t, discoveryWanted(ProviderConfig{Models: listed}, false), "listed models no longer suppress discovery")
+	require.False(t, discoveryWanted(ProviderConfig{AutoDiscoverModels: &off, Models: nil}, false))
+	require.True(t, discoveryWanted(ProviderConfig{AutoDiscoverModels: &on, Models: listed}, true))
+	require.False(t, discoveryWanted(ProviderConfig{Models: listed}, true), "under test, unset means only when empty")
+	require.True(t, discoveryWanted(ProviderConfig{}, true))
+}

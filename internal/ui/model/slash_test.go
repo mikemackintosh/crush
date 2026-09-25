@@ -20,6 +20,9 @@ func TestParseSlashCommand(t *testing.T) {
 		{"/", "", "", false},
 		{"/mcp\nand more", "", "", false},
 		{"/etc/hosts is where?", "", "", false},
+		{"/model", "model", "", true},
+		{"/models", "models", "", true},
+		{"/login llmgw", "login", "llmgw", true},
 		{"/123", "", "", false},
 	}
 	for _, tc := range cases {

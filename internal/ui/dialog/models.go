@@ -87,6 +87,7 @@ type Models struct {
 		Edit     key.Binding
 		Next     key.Binding
 		Previous key.Binding
+		Refetch  key.Binding
 		Close    key.Binding
 	}
 	list  *ModelsList
@@ -141,6 +142,10 @@ func NewModels(com *common.Common, isOnboarding bool) (*Models, error) {
 		key.WithKeys("up", "ctrl+p"),
 		key.WithHelp("↑", "previous item"),
 	)
+	m.keyMap.Refetch = key.NewBinding(
+		key.WithKeys("ctrl+r"),
+		key.WithHelp("ctrl+r", "refetch models"),
+	)
 	m.keyMap.Close = CloseKey
 
 	// A stale catalog must not keep this dialog from opening: it is the
@@ -173,6 +178,8 @@ func (m *Models) HandleMsg(msg tea.Msg) Action {
 		switch {
 		case key.Matches(msg, m.keyMap.Close):
 			return ActionClose{}
+		case key.Matches(msg, m.keyMap.Refetch):
+			return ActionRefetchModels{}
 		case key.Matches(msg, m.keyMap.Previous):
 			m.list.Focus()
 			if m.list.IsSelectedFirst() {
@@ -318,6 +325,7 @@ func (m *Models) ShortHelp() []key.Binding {
 		m.keyMap.UpDown,
 		m.keyMap.Tab,
 		m.keyMap.Select,
+		m.keyMap.Refetch,
 	}
 	if m.isSelectedConfigured() {
 		h = append(h, m.keyMap.Edit)

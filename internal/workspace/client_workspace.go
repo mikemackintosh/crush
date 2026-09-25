@@ -806,6 +806,14 @@ func (w *ClientWorkspace) MCPReconnect(ctx context.Context, name string) error {
 	return w.client.MCPReconnect(ctx, w.workspaceID(), name)
 }
 
+func (w *ClientWorkspace) ReloadConfig(ctx context.Context) error {
+	err := w.client.ReloadConfig(ctx, w.workspaceID())
+	if err == nil {
+		w.refreshWorkspace()
+	}
+	return err
+}
+
 func (w *ClientWorkspace) MCPSetEnabled(ctx context.Context, name string, enabled bool) error {
 	return w.client.MCPSetEnabled(ctx, w.workspaceID(), name, enabled)
 }

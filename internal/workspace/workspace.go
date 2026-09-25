@@ -239,6 +239,9 @@ type Workspace interface {
 	// OAuth/OIDC token refresh commands) and is the mechanism for
 	// refreshing expired credentials.
 	MCPReconnect(ctx context.Context, name string) error
+	// ReloadConfig re-reads config from disk and re-runs model discovery,
+	// so a gateway's newly published models reach the picker.
+	ReloadConfig(ctx context.Context) error
 	// MCPSetEnabled persists a server's disabled flag and applies it live.
 	MCPSetEnabled(ctx context.Context, name string, enabled bool) error
 	// MCPForgetAuth drops a server's stored OAuth token and leaves it

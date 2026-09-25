@@ -157,6 +157,9 @@ type (
 		ServerName string
 		Enabled    bool
 	}
+	// ActionRefetchModels reloads the config and re-runs model discovery,
+	// then reopens the picker on the fresh catalog.
+	ActionRefetchModels struct{}
 	// ActionMCPReauth forgets an OAuth MCP server's token and starts the
 	// sign-in flow again.
 	ActionMCPReauth struct {

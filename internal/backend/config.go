@@ -349,6 +349,21 @@ func (b *Backend) MCPReconnect(ctx context.Context, workspaceID, name string) er
 	return mcptools.InitializeSingle(ctx, name, ws.Cfg)
 }
 
+// ReloadConfig re-reads every config file from disk and re-runs provider
+// model discovery, then tells subscribers the config changed. It is what
+// the model picker's refetch key calls.
+func (b *Backend) ReloadConfig(ctx context.Context, workspaceID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if err := ws.Cfg.ReloadFromDisk(ctx); err != nil {
+		return err
+	}
+	publishConfigChanged(ws)
+	return nil
+}
+
 // MCPSetEnabled flips a server's disabled flag in the global config and
 // applies it live: a disabled server is torn down, an enabled one is started.
 // The flag is written to the machine-owned data config, which merges over the

@@ -405,9 +405,13 @@ func (c *Config) configureProviders(ctx context.Context, store *ConfigStore, env
 		if pc.Disable || pc.BaseURL == "" {
 			continue
 		}
-		wantsDiscovery := pc.AutoDiscoverModels != nil && *pc.AutoDiscoverModels
-		autoTrigger := len(pc.Models) == 0 && (pc.AutoDiscoverModels == nil || *pc.AutoDiscoverModels)
-		if !wantsDiscovery && !autoTrigger {
+		// Discovery is on unless the provider says discover_models: false.
+		// It used to run only when the model list was empty, which made a
+		// gateway's published context windows invisible to anyone who had
+		// listed a model by hand. Under test, an unset flag keeps the old
+		// behaviour so fixtures with unreachable base URLs do not each wait
+		// on the discovery timeout.
+		if !discoveryWanted(pc, testing.Testing()) {
 			continue
 		}
 		providerID := cmp.Or(pc.ID, id)
@@ -1413,6 +1417,21 @@ func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Termina
 // normalizeHookEvent maps user-provided event names to their canonical
 // form. Matching is case-insensitive and accepts snake_case variants
 // (e.g. "pre_tool_use" → "PreToolUse").
+// discoveryWanted decides whether a custom provider's models are fetched
+// from its /v1/models endpoint. On by default; discover_models: false turns
+// it off. Under test an unset flag falls back to the old rule, only when
+// no models are listed, so fixtures with unreachable base URLs do not each
+// wait on the discovery timeout.
+func discoveryWanted(pc ProviderConfig, underTest bool) bool {
+	if pc.AutoDiscoverModels != nil {
+		return *pc.AutoDiscoverModels
+	}
+	if underTest {
+		return len(pc.Models) == 0
+	}
+	return true
+}
+
 func normalizeHookEvent(name string) string {
 	key := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "_", ""), "-", ""))
 	for _, ev := range HookEvents {

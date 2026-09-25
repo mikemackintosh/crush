@@ -147,6 +147,19 @@ func (c *Client) ImportCopilot(ctx context.Context, id string) (*oauth.Token, bo
 
 // RefreshOAuthToken refreshes an OAuth token for a provider on the
 // server.
+// ReloadConfig re-reads config from disk and re-runs model discovery.
+func (c *Client) ReloadConfig(ctx context.Context, id string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/reload", id), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to reload config: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to reload config: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) RefreshOAuthToken(ctx context.Context, id string, scope config.Scope, providerID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/refresh-oauth", id), nil, jsonBody(struct {
 		Scope      config.Scope `json:"scope"`

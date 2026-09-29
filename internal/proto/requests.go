@@ -129,6 +129,13 @@ type MCPNameRequest struct {
 	Name string `json:"name"`
 }
 
+// SessionForkRequest asks for a copy of a session. UntilMessageID, when
+// set, ends the copy at that message (or a unique prefix of its id).
+type SessionForkRequest struct {
+	Title          string `json:"title,omitempty"`
+	UntilMessageID string `json:"until_message_id,omitempty"`
+}
+
 // MCPSetEnabledRequest names a server and whether it should run.
 type MCPSetEnabledRequest struct {
 	Name    string `json:"name"`

@@ -129,6 +129,16 @@ func (c *controllerV1) endpoints() []apigen.Endpoint {
 			Fails(400, 404, 500).
 			Handle(c.handlePostWorkspaceSessions),
 
+		apigen.Post("/v1/workspaces/{id}/sessions/{sid}/fork").
+			Summary("Fork a session").
+			Tags("sessions").
+			PathParam("id", "Workspace ID").
+			PathParam("sid", "Session ID").
+			Accepts(proto.SessionForkRequest{}).
+			Responds(proto.Session{}).
+			Fails(400, 404, 500).
+			Handle(c.handlePostWorkspaceSessionFork),
+
 		apigen.Get("/v1/workspaces/{id}/sessions/{sid}").
 			Summary("Get session").
 			Tags("sessions").

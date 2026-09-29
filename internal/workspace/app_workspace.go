@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/question"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/sessionfork"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
 )
@@ -46,6 +47,10 @@ func NewAppWorkspace(a *app.App, store *config.ConfigStore) *AppWorkspace {
 
 func (w *AppWorkspace) CreateSession(ctx context.Context, title string) (session.Session, error) {
 	return w.app.Sessions.Create(ctx, title)
+}
+
+func (w *AppWorkspace) ForkSession(ctx context.Context, sessionID, title, untilMessageID string) (session.Session, error) {
+	return sessionfork.Fork(ctx, w.app.Sessions, w.app.Messages, sessionID, sessionfork.Options{Title: title, UntilMessageID: untilMessageID})
 }
 
 func (w *AppWorkspace) GetSession(ctx context.Context, sessionID string) (session.Session, error) {

@@ -818,6 +818,30 @@ func (c *Client) SaveSession(ctx context.Context, id string, sess proto.Session)
 }
 
 // DeleteSession deletes a session from a workspace.
+// ForkSession copies a session into a new one.
+func (c *Client) ForkSession(ctx context.Context, id, sessionID, title, untilMessageID string) (*proto.Session, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/fork", id, sessionID), nil, jsonBody(proto.SessionForkRequest{Title: title, UntilMessageID: untilMessageID}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fork session: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		var body struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(rsp.Body).Decode(&body)
+		if body.Error != "" {
+			return nil, fmt.Errorf("failed to fork session: %s", body.Error)
+		}
+		return nil, fmt.Errorf("failed to fork session: status code %d", rsp.StatusCode)
+	}
+	var out proto.Session
+	if err := json.NewDecoder(rsp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("failed to decode forked session: %w", err)
+	}
+	return &out, nil
+}
+
 func (c *Client) DeleteSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.delete(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sessionID), nil, nil)
 	if err != nil {

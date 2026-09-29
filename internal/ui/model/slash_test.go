@@ -23,6 +23,7 @@ func TestParseSlashCommand(t *testing.T) {
 		{"/model", "model", "", true},
 		{"/models", "models", "", true},
 		{"/login llmgw", "login", "llmgw", true},
+		{"/fork Try the other approach", "fork", "Try the other approach", true},
 		{"/123", "", "", false},
 	}
 	for _, tc := range cases {

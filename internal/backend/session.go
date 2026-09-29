@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/sessionfork"
 )
 
 // CreateSession creates a new session in the given workspace.
@@ -16,6 +17,16 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) 
 	}
 
 	return ws.Sessions.Create(ctx, title)
+}
+
+// ForkSession copies a session into a new one so an alternative can be
+// explored without touching the original.
+func (b *Backend) ForkSession(ctx context.Context, workspaceID, sessionID string, opts sessionfork.Options) (session.Session, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	return sessionfork.Fork(ctx, ws.Sessions, ws.Messages, sessionID, opts)
 }
 
 // GetSession retrieves a session by workspace and session ID.

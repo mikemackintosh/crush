@@ -1,12 +1,14 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/util"
 )
 
@@ -44,6 +46,20 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 	case "model", "models":
 		// /model opens the picker; ctrl+r inside it refetches the catalog.
 		return m.openModelsDialog(), true
+	case "fork":
+		// /fork [title] copies this conversation into a new session and
+		// switches to it, leaving the original where it is.
+		if !m.hasSession() {
+			return util.ReportError(errors.New("nothing to fork yet; send a message first")), true
+		}
+		sourceID := m.session.ID
+		return func() tea.Msg {
+			forked, err := m.com.Workspace.ForkSession(context.Background(), sourceID, arg, "")
+			if err != nil {
+				return util.ReportError(err)()
+			}
+			return sessionForkedMsg{session: forked}
+		}, true
 	case "login":
 		// /login reopens sign-in for the current model's provider, or for
 		// the named one, without waiting for a 401 to force it.
@@ -61,6 +77,9 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 	}
 	return nil, false
 }
+
+// sessionForkedMsg carries the new session after /fork.
+type sessionForkedMsg struct{ session session.Session }
 
 // describeModelCounts summarises the catalog for the refetch notice, so the
 // user can see whether a gateway's models actually arrived.

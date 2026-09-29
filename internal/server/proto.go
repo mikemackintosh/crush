@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/sessionfork"
 	"github.com/google/uuid"
 )
 
@@ -304,6 +305,30 @@ func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *htt
 	out.IsBusy = isSessionBusy(ws, sess.ID)
 	out.AttachedClients = attachedClients(ws, sess.ID)
 	jsonEncode(w, out)
+}
+
+// handlePostWorkspaceSessionFork copies a session into a new one.
+func (c *controllerV1) handlePostWorkspaceSessionFork(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+
+	var req proto.SessionForkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	sess, err := c.backend.ForkSession(r.Context(), id, sid, sessionfork.Options{Title: req.Title, UntilMessageID: req.UntilMessageID})
+	if err != nil {
+		if errors.Is(err, sessionfork.ErrMessageNotFound) || errors.Is(err, sessionfork.ErrAmbiguousMessage) {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, sessionToProto(sess))
 }
 
 // handleGetWorkspaceSession returns a single session.

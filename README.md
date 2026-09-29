@@ -427,6 +427,17 @@ crush mcp list
 crush mcp remove rocketbox
 ```
 
+Any conversation can be forked. `/fork` copies the current session into a new
+one and switches to it, so you can try a different direction while the
+original stays as it was; `/fork <title>` names the copy. From the shell,
+`crush session fork <id>` does the same, and `--until <message-id>` copies only
+up to a message so the fork picks up from a point in the past:
+
+```bash
+crush session fork last --title "Try the other approach"
+crush session fork 3f2a --until 9c1e
+```
+
 Every session can be exported as a transcript, either as JSON Lines, the
 same shape hooks receive as `transcript_path`, or as Markdown:
 

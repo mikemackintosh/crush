@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/sessionfork"
 	"github.com/charmbracelet/crush/internal/transcript"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -44,6 +45,9 @@ var (
 
 	sessionExportFormat string
 	sessionExportOutput string
+
+	sessionForkTitle string
+	sessionForkUntil string
 	sessionLastJSON   bool
 	sessionDeleteJSON bool
 	sessionRenameJSON bool
@@ -80,6 +84,21 @@ crush session export 3f2a > transcript.jsonl
   `,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionExport,
+}
+
+var sessionForkCmd = &cobra.Command{
+	Use:   "fork <id>",
+	Short: "Fork a session into a new one",
+	Long: `Copy a session into a new one so an alternative can be explored without
+touching the original. ID can be a UUID, full hash, hash prefix, or "last".
+--until <message-id> stops the copy at that message (a unique id prefix works),
+so the fork picks up from a point in the past.`,
+	Example: `
+crush session fork last
+crush session fork 3f2a --title "Try the other approach" --until 9c1e
+  `,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionFork,
 }
 
 var sessionLastCmd = &cobra.Command{
@@ -120,6 +139,9 @@ func init() {
 	sessionExportCmd.Flags().StringVar(&sessionExportFormat, "format", "jsonl", "jsonl or md")
 	sessionExportCmd.Flags().StringVarP(&sessionExportOutput, "output", "o", "", "write to this file instead of stdout")
 	sessionCmd.AddCommand(sessionExportCmd)
+	sessionForkCmd.Flags().StringVar(&sessionForkTitle, "title", "", "title for the new session (default: Fork of <title>)")
+	sessionForkCmd.Flags().StringVar(&sessionForkUntil, "until", "", "copy up to and including this message id")
+	sessionCmd.AddCommand(sessionForkCmd)
 }
 
 type sessionServices struct {
@@ -360,6 +382,41 @@ func runSessionExport(cmd *cobra.Command, args []string) error {
 	if sessionExportOutput != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %d messages to %s\n", len(msgs), sessionExportOutput)
 	}
+	return nil
+}
+
+func runSessionFork(cmd *cobra.Command, args []string) error {
+	event.SetNonInteractive(true)
+
+	ctx, svc, cleanup, err := sessionSetup(cmd)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	var source session.Session
+	if args[0] == "last" {
+		sessions, err := svc.sessions.List(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list sessions: %w", err)
+		}
+		if len(sessions) == 0 {
+			return errors.New("no sessions found")
+		}
+		source = sessions[0]
+	} else {
+		source, err = resolveSessionID(ctx, svc.sessions, args[0])
+		if err != nil {
+			return err
+		}
+	}
+
+	forked, err := sessionfork.Fork(ctx, svc.sessions, svc.messages, source.ID, sessionfork.Options{Title: sessionForkTitle, UntilMessageID: sessionForkUntil})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Forked %q into %q (%s, %d messages)\n", source.Title, forked.Title, session.HashID(forked.ID), forked.MessageCount)
+	fmt.Fprintf(cmd.OutOrStdout(), "Resume it with: crush --session %s\n", session.HashID(forked.ID))
 	return nil
 }
 

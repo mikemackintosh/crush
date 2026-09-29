@@ -941,6 +941,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			commands.SetCustomCommands(m.customCommands)
 		}
 
+	case sessionForkedMsg:
+		cmds = append(cmds, m.loadSession(msg.session.ID))
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Forked into %q", msg.session.Title))))
 	case modelsRefetchedMsg:
 		// Config reloaded and discovery re-ran: reopen the picker on the
 		// fresh catalog and say how big it is.

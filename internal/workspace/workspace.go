@@ -117,6 +117,9 @@ type AgentModel struct {
 type Workspace interface {
 	// Sessions
 	CreateSession(ctx context.Context, title string) (session.Session, error)
+	// ForkSession copies a session into a new one; an empty title derives
+	// one from the source, an empty untilMessageID copies everything.
+	ForkSession(ctx context.Context, sessionID, title, untilMessageID string) (session.Session, error)
 	GetSession(ctx context.Context, sessionID string) (session.Session, error)
 	ListSessions(ctx context.Context) ([]session.Session, error)
 	SaveSession(ctx context.Context, sess session.Session) (session.Session, error)

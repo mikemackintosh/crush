@@ -2414,6 +2414,21 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, util.ReportInfo("Deleted theme "+msg.Name))
 		m.dialog.CloseDialog(dialog.ThemeID)
 		m.openThemeDialog()
+	case dialog.ActionForkSession:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if cmd := m.forkCurrentSession(""); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionSwitchFork:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if cmd := m.switchFork(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionReauthenticate:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if cmd := m.reauthenticateCurrent(""); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ActionToggleMouseSupport:
 		cfg := m.com.Config()
 		if cfg == nil {

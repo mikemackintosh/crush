@@ -427,9 +427,9 @@ crush mcp list
 crush mcp remove rocketbox
 ```
 
-Any conversation can be forked. `/fork` copies the current session into a new
-one and switches to it, so you can try a different direction while the
-original stays as it was; `/fork <title>` names the copy. From the shell,
+Any conversation can be forked. Press `/`, choose Fork Session, and the
+current session is copied into a new one you are switched to, so you can try
+a different direction while the original stays as it was. From the shell,
 `crush session fork <id>` does the same, and `--until <message-id>` copies only
 up to a message so the fork picks up from a point in the past:
 
@@ -438,8 +438,8 @@ crush session fork last --title "Try the other approach"
 crush session fork 3f2a --until 9c1e
 ```
 
-A fork remembers where it came from. In the sessions list (`ctrl+s` or
-`/sessions`) forks sit under their source, marked `⑂`. `ctrl+shift+s` or `/forks`
+A fork remembers where it came from. In the sessions list (`ctrl+s`) forks sit
+under their source, marked `⑂`. `ctrl+shift+s`, or Switch Fork in the palette,
 jumps from a session to its most recent fork and from a fork back to its
 source, so comparing two branches is one keypress each way.
 
@@ -451,8 +451,7 @@ crush session export last --format md --output notes.md
 crush session export 3f2a > transcript.jsonl
 ```
 
-Inside a session, type `/mcp` (or `/mcp <name>`) to open the MCP servers
-dialog: it shows each server's state and tool counts, and from there you can
+Inside a session, press `/` and choose MCP Servers to open the dialog: it shows each server's state and tool counts, and from there you can
 reconnect (`enter`), enable or disable (`ctrl+e`), sign in again to an OAuth
 server (`ctrl+a`), or refresh its tools, prompts and resources.
 
@@ -866,16 +865,16 @@ models in the model picker and complete the device code in your browser.
 
 After that the token looks after itself: Crush refreshes it in the background
 before it expires, retries once after a 401, and shows the provider and the
-token's remaining lifetime in the status bar. Type `/login` in a session to
-sign in again on demand, or `/login <provider>` for another provider.
+token's remaining lifetime in the status bar. Press `/` in a session and
+choose Sign In Again to sign in on demand.
 
 A gateway usually publishes its models. Crush reads `/v1/models` on every
 config load, including right after sign-in, and takes the context window and
 output ceiling from what the gateway reports (`max_model_len`,
 `context_length` and friends), fills those in for models you listed by ID
 only, and leaves speech and embedding models out of the picker. Set
-`--discover-models false` to turn that off for a provider. Type `/model` in a
-session to open the picker, and press `ctrl+r` inside it to refetch.
+`--discover-models false` to turn that off for a provider. `ctrl+l` opens the
+model picker, and `ctrl+r` inside it refetches.
 
 - `--oauth-issuer URL` names the authorization server directly when the
   gateway does not publish protected resource metadata.

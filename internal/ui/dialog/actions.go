@@ -157,6 +157,13 @@ type (
 		ServerName string
 		Enabled    bool
 	}
+	// ActionForkSession copies the current session into a new one and
+	// switches to it.
+	ActionForkSession struct{}
+	// ActionSwitchFork jumps between a session and its most recent fork.
+	ActionSwitchFork struct{}
+	// ActionReauthenticate reopens sign-in for the current model's provider.
+	ActionReauthenticate struct{}
 	// ActionRefetchModels reloads the config and re-runs model discovery,
 	// then reopens the picker on the fresh catalog.
 	ActionRefetchModels struct{}

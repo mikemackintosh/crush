@@ -52,35 +52,43 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 		// /forks jumps between a session and its most recent fork.
 		return m.switchFork(), true
 	case "fork":
-		// /fork [title] copies this conversation into a new session and
-		// switches to it, leaving the original where it is.
-		if !m.hasSession() {
-			return util.ReportError(errors.New("nothing to fork yet; send a message first")), true
-		}
-		sourceID := m.session.ID
-		return func() tea.Msg {
-			forked, err := m.com.Workspace.ForkSession(context.Background(), sourceID, arg, "")
-			if err != nil {
-				return util.ReportError(err)()
-			}
-			return sessionForkedMsg{session: forked}
-		}, true
+		return m.forkCurrentSession(arg), true
 	case "login":
-		// /login reopens sign-in for the current model's provider, or for
-		// the named one, without waiting for a 401 to force it.
-		providerID := arg
-		if providerID == "" {
-			providerID = m.currentProviderID()
-		}
-		if providerID == "" {
-			return util.ReportError(errors.New("no provider selected; pick a model first or use /login <provider>")), true
-		}
-		if _, ok := m.com.Config().Providers.Get(providerID); !ok {
-			return util.ReportError(fmt.Errorf("unknown provider %q", providerID)), true
-		}
-		return m.handleReAuthenticate(providerID), true
+		return m.reauthenticateCurrent(arg), true
 	}
 	return nil, false
+}
+
+// forkCurrentSession copies this conversation into a new session and
+// switches to it, leaving the original where it is. Shared by the typed
+// /fork and the palette's Fork Session.
+func (m *UI) forkCurrentSession(title string) tea.Cmd {
+	if !m.hasSession() {
+		return util.ReportError(errors.New("nothing to fork yet; send a message first"))
+	}
+	sourceID := m.session.ID
+	return func() tea.Msg {
+		forked, err := m.com.Workspace.ForkSession(context.Background(), sourceID, title, "")
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		return sessionForkedMsg{session: forked}
+	}
+}
+
+// reauthenticateCurrent reopens sign-in for the current model's provider,
+// or for the named one, without waiting for a 401 to force it.
+func (m *UI) reauthenticateCurrent(providerID string) tea.Cmd {
+	if providerID == "" {
+		providerID = m.currentProviderID()
+	}
+	if providerID == "" {
+		return util.ReportError(errors.New("no provider selected; pick a model first or use /login <provider>"))
+	}
+	if _, ok := m.com.Config().Providers.Get(providerID); !ok {
+		return util.ReportError(fmt.Errorf("unknown provider %q", providerID))
+	}
+	return m.handleReAuthenticate(providerID)
 }
 
 // switchFork jumps from a fork back to its source, or from a source to its

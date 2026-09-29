@@ -456,7 +456,10 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	// Only show compact command if there's an active session
 	if c.hasSession {
 		commands = append(commands, NewCommandItem(c.com.Styles, "summarize", "Summarize Session", "", ActionSummarize{SessionID: c.sessionID}))
+		commands = append(commands, NewCommandItem(c.com.Styles, "fork_session", "Fork Session", "", ActionForkSession{}).WithAliases("fork", "branch"))
+		commands = append(commands, NewCommandItem(c.com.Styles, "switch_fork", "Switch Fork", "ctrl+shift+s", ActionSwitchFork{}).WithAliases("forks"))
 	}
+	commands = append(commands, NewCommandItem(c.com.Styles, "reauthenticate", "Sign In Again", "", ActionReauthenticate{}).WithAliases("login", "auth"))
 
 	// Add reasoning toggle for models that support it
 	cfg := c.com.Config()

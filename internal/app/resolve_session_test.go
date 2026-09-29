@@ -68,6 +68,8 @@ func (m *mockSessionService) Rename(context.Context, string, string) error {
 	return nil
 }
 
+func (m *mockSessionService) SetForkedFrom(_ context.Context, _, _ string) error { return nil }
+
 func (m *mockSessionService) Delete(context.Context, string) error {
 	return nil
 }

@@ -65,6 +65,19 @@ var _ ListItem = &SessionItem{}
 
 // Filter returns the filterable value of the session.
 func (s *SessionItem) Filter() string {
+	return s.displayTitle()
+}
+
+// forkMarker prefixes a forked session's title in the list, so a fork reads
+// as a branch of the entry above it rather than as a stray copy.
+const forkMarker = "  \u2442 "
+
+// displayTitle is the title as listed: forks carry the marker. Filter and
+// Render both use it so fuzzy match offsets line up with what is drawn.
+func (s *SessionItem) displayTitle() string {
+	if s.ForkedFrom != "" {
+		return forkMarker + s.Title
+	}
 	return s.Title
 }
 
@@ -152,7 +165,7 @@ func (s *SessionItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(styles, s.Title, info, s.focused, width, s.cache, &s.m)
+	return renderItem(styles, s.displayTitle(), info, s.focused, width, s.cache, &s.m)
 }
 
 type ListItemStyles struct {
@@ -253,6 +266,50 @@ func (s *SessionItem) SetFocused(focused bool) {
 
 // sessionItems takes a slice of [session.Session]s and convert them to a slice
 // of [ListItem]s.
+// groupForks orders sessions for the list: each original in the order
+// given (newest first), immediately followed by its forks, newest first,
+// with a fork's own forks nested after it. A fork whose source is gone
+// from the list is shown as an original.
+func groupForks(sessions []session.Session) []session.Session {
+	byID := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		byID[s.ID] = true
+	}
+	children := map[string][]session.Session{}
+	var roots []session.Session
+	for _, s := range sessions {
+		if s.ForkedFrom != "" && byID[s.ForkedFrom] && s.ForkedFrom != s.ID {
+			children[s.ForkedFrom] = append(children[s.ForkedFrom], s)
+			continue
+		}
+		roots = append(roots, s)
+	}
+	out := make([]session.Session, 0, len(sessions))
+	seen := map[string]bool{}
+	var walk func(s session.Session)
+	walk = func(s session.Session) {
+		if seen[s.ID] {
+			return
+		}
+		seen[s.ID] = true
+		out = append(out, s)
+		for _, c := range children[s.ID] {
+			walk(c)
+		}
+	}
+	for _, r := range roots {
+		walk(r)
+	}
+	// Anything unreachable (a fork cycle) still gets listed.
+	for _, s := range sessions {
+		if !seen[s.ID] {
+			seen[s.ID] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func sessionItems(t *styles.Styles, mode sessionsMode, sessions ...session.Session) []list.FilterableItem {
 	items := make([]list.FilterableItem, len(sessions))
 	for i, s := range sessions {

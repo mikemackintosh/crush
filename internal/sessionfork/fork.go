@@ -19,6 +19,7 @@ type Sessions interface {
 	Get(ctx context.Context, id string) (session.Session, error)
 	Create(ctx context.Context, title string) (session.Session, error)
 	Save(ctx context.Context, s session.Session) (session.Session, error)
+	SetForkedFrom(ctx context.Context, id, sourceID string) error
 }
 
 // Messages is the slice of message.Service a fork needs.
@@ -77,6 +78,10 @@ func Fork(ctx context.Context, sessions Sessions, messages Messages, sourceID st
 	if err != nil {
 		return session.Session{}, fmt.Errorf("fork: create session: %w", err)
 	}
+	if err := sessions.SetForkedFrom(ctx, forked.ID, source.ID); err != nil {
+		return session.Session{}, fmt.Errorf("fork: record source: %w", err)
+	}
+	forked.ForkedFrom = source.ID
 
 	idMap := make(map[string]string, len(msgs))
 	for i := range msgs {

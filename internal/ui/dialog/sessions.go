@@ -73,6 +73,7 @@ func NewSessions(com *common.Common, selectedSessionID string) (*Session, error)
 	if err != nil {
 		return nil, err
 	}
+	sessions = groupForks(sessions)
 
 	s.sessions = sessions
 	for i, sess := range sessions {

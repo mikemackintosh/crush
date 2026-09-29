@@ -46,6 +46,11 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 	case "model", "models":
 		// /model opens the picker; ctrl+r inside it refetches the catalog.
 		return m.openModelsDialog(), true
+	case "sessions", "session":
+		return m.openSessionsDialog(), true
+	case "forks":
+		// /forks jumps between a session and its most recent fork.
+		return m.switchFork(), true
 	case "fork":
 		// /fork [title] copies this conversation into a new session and
 		// switches to it, leaving the original where it is.
@@ -77,6 +82,49 @@ func (m *UI) runSlashCommand(name, arg string) (cmd tea.Cmd, handled bool) {
 	}
 	return nil, false
 }
+
+// switchFork jumps from a fork back to its source, or from a source to its
+// most recent fork. It is the quick toggle for comparing two branches of
+// the same conversation without going through the sessions list.
+func (m *UI) switchFork() tea.Cmd {
+	if !m.hasSession() {
+		return util.ReportInfo("no session to switch from")
+	}
+	current := *m.session
+	return func() tea.Msg {
+		sessions, err := m.com.Workspace.ListSessions(context.Background())
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		target, ok := forkSwitchTarget(current, sessions)
+		if !ok {
+			return util.NewInfoMsg("This session has no fork yet; /fork makes one")
+		}
+		return sessionSwitchMsg{sessionID: target.ID, title: target.Title}
+	}
+}
+
+// forkSwitchTarget picks where ctrl+shift+s goes: the source when current
+// is a fork, otherwise the newest fork of current. Sessions are expected
+// newest first, as ListSessions returns them.
+func forkSwitchTarget(current session.Session, sessions []session.Session) (session.Session, bool) {
+	if current.ForkedFrom != "" {
+		for _, s := range sessions {
+			if s.ID == current.ForkedFrom {
+				return s, true
+			}
+		}
+	}
+	for _, s := range sessions {
+		if s.ForkedFrom == current.ID {
+			return s, true
+		}
+	}
+	return session.Session{}, false
+}
+
+// sessionSwitchMsg asks the UI to load another session.
+type sessionSwitchMsg struct{ sessionID, title string }
 
 // sessionForkedMsg carries the new session after /fork.
 type sessionForkedMsg struct{ session session.Session }

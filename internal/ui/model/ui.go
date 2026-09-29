@@ -941,6 +941,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			commands.SetCustomCommands(m.customCommands)
 		}
 
+	case sessionSwitchMsg:
+		cmds = append(cmds, m.loadSession(msg.sessionID))
+		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Switched to %q", msg.title))))
 	case sessionForkedMsg:
 		cmds = append(cmds, m.loadSession(msg.session.ID))
 		cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Forked into %q", msg.session.Title))))
@@ -3004,6 +3007,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			return true
 		case key.Matches(msg, m.keyMap.Sessions):
 			if cmd := m.openSessionsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return true
+		case key.Matches(msg, m.keyMap.SwitchFork):
+			if cmd := m.switchFork(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 			return true

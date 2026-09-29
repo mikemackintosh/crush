@@ -72,3 +72,8 @@ WHERE id = ?;
 -- name: DeleteSession :exec
 DELETE FROM sessions
 WHERE id = ?;
+
+-- name: SetSessionForkedFrom :exec
+UPDATE sessions
+SET forked_from = ?
+WHERE id = ?;

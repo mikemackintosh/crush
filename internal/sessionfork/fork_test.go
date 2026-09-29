@@ -121,3 +121,17 @@ func TestCutIndex(t *testing.T) {
 	require.Equal(t, "Fork", ForkTitle("  "))
 	require.Equal(t, "Fork of X", ForkTitle("X"))
 }
+
+func TestFork_RecordsItsSource(t *testing.T) {
+	sessions, messages := services(t)
+	src, _ := seed(t, sessions, messages)
+	forked, err := Fork(t.Context(), sessions, messages, src.ID, Options{})
+	require.NoError(t, err)
+	require.Equal(t, src.ID, forked.ForkedFrom)
+	reloaded, err := sessions.Get(t.Context(), forked.ID)
+	require.NoError(t, err)
+	require.Equal(t, src.ID, reloaded.ForkedFrom, "lineage is persisted")
+	listed, err := sessions.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "a fork is a top-level session, not hidden like a task session")
+}

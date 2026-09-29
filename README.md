@@ -438,6 +438,11 @@ crush session fork last --title "Try the other approach"
 crush session fork 3f2a --until 9c1e
 ```
 
+A fork remembers where it came from. In the sessions list (`ctrl+s` or
+`/sessions`) forks sit under their source, marked `⑂`. `ctrl+shift+s` or `/forks`
+jumps from a session to its most recent fork and from a fork back to its
+source, so comparing two branches is one keypress each way.
+
 Every session can be exported as a transcript, either as JSON Lines, the
 same shape hooks receive as `transcript_path`, or as Markdown:
 

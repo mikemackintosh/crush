@@ -60,6 +60,9 @@ type Session struct {
 	Todos            []Todo
 	CreatedAt        int64
 	UpdatedAt        int64
+	// ForkedFrom is the session this one was copied from, empty for an
+	// original. Forks are top-level sessions; this only records lineage.
+	ForkedFrom string
 }
 
 type Service interface {
@@ -73,6 +76,8 @@ type Service interface {
 	Save(ctx context.Context, session Session) (Session, error)
 	UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error
 	Rename(ctx context.Context, id string, title string) error
+	// SetForkedFrom records the session a fork was copied from.
+	SetForkedFrom(ctx context.Context, id, sourceID string) error
 	Delete(ctx context.Context, id string) error
 
 	// Agent tool session management
@@ -312,7 +317,15 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Todos:            todos,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
+		ForkedFrom:       item.ForkedFrom.String,
 	}
+}
+
+func (s *service) SetForkedFrom(ctx context.Context, id, sourceID string) error {
+	return s.q.SetSessionForkedFrom(ctx, db.SetSessionForkedFromParams{
+		ForkedFrom: sql.NullString{String: sourceID, Valid: sourceID != ""},
+		ID:         id,
+	})
 }
 
 func marshalTodos(todos []Todo) (string, error) {

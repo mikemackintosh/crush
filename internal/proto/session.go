@@ -21,6 +21,7 @@ type Session struct {
 	PromptTokens     int64   `json:"prompt_tokens"`
 	CompletionTokens int64   `json:"completion_tokens"`
 	SummaryMessageID string  `json:"summary_message_id"`
+	ForkedFrom       string  `json:"forked_from,omitempty"`
 	Cost             float64 `json:"cost"`
 	Todos            []Todo  `json:"todos,omitempty"`
 	CreatedAt        int64   `json:"created_at"`
